@@ -21,13 +21,16 @@ chmod +x install.sh docker-entrypoint.sh scripts/*.sh
 ./install.sh
 ```
 
-O instalador cria o arquivo `.env` com senhas aleatórias quando ele ainda não existe, sobe MySQL 8.4 com volume persistente, constrói a aplicação, aplica migrations e insere a base demonstrativa apenas se o banco estiver vazio.
+O instalador cria o arquivo `.env` com senhas e tokens internos aleatórios quando ele ainda não existe, sobe MySQL 8.4 com volume persistente, constrói a aplicação e os microserviços, aplica migrations e insere a base demonstrativa apenas se o banco estiver vazio.
 
 Depois da instalação, confirme que os containers estão saudáveis:
 
 ```bash
 docker compose ps
 curl http://127.0.0.1:3000/api/health
+# Os serviços especializados ficam somente na rede Docker interna:
+docker compose exec pesagem python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/api/health').read().decode())"
+docker compose exec balanca-misturadora node -e "fetch('http://127.0.0.1:8080/api/health').then(r => r.text()).then(console.log)"
 ```
 
 Acesse `http://IP_DA_VPS:3000` ou a porta definida em `APP_PORT` no `.env`. As credenciais iniciais ficam no arquivo `.env` local da VPS:
@@ -70,6 +73,7 @@ O proxy reverso deve encaminhar tráfego ao host em `127.0.0.1:3000` (ou à port
 # Status e logs
 docker compose ps
 docker compose logs -f app
+docker compose logs -f pesagem balanca-misturadora
 
 # Atualização da aplicação
 git pull
@@ -121,6 +125,21 @@ O restore substitui os dados atuais do MySQL. Faça um backup imediatamente ante
 - **Inicialização:** o entrypoint aguarda MySQL, aplica migrations, executa seed idempotente e inicia o servidor.
 - **Durabilidade:** nenhum dado operacional é gravado no filesystem efêmero da aplicação; banco e backups ficam fora do container da aplicação.
 
+### Serviços operacionais incluídos
+
+O `docker-compose.yml` completo contém quatro serviços. Apenas `app` publica porta no host; `db`, `pesagem` e `balanca-misturadora` são acessíveis somente pela rede privada `bonanca_internal`.
+
+| Serviço | Função | Persistência |
+| --- | --- | --- |
+| `app` | Interface Bonança, autenticação, gateway tRPC e auditoria central | MySQL |
+| `db` | Banco MySQL 8.4 do núcleo multinegócio | volume `bonanca_mysql_data` |
+| `pesagem` | Animais, sessões, pesos, GMD, grupos e manejos | volume `bonanca_pesagem_data`, separado por organização |
+| `balanca-misturadora` | Ingredientes, receitas, máquinas, currais, estoque, batidas, sobras e ordenha | volume `bonanca_balanca_data`, segregado por organização |
+
+A tela **Pesagem e alimentação** chama os microserviços pelo gateway do Bonança. A sessão do usuário fornece organização, usuário e papel; o app adiciona tokens internos distintos (`PESAGEM_SERVICE_TOKEN` e `BALANCA_SERVICE_TOKEN`) que nunca chegam ao navegador. Cada comando aprovado também fica registrado no histórico central.
+
+Os módulos aceitam lançamentos manuais. Eles **não** se conectam automaticamente a indicadores, balanças, Bluetooth, portas seriais, TCP ou APIs de fabricante. Uma integração de equipamento deve ser homologada com modelo, firmware, protocolo, estabilidade de leitura, ACK, idempotência e testes físicos antes de ser habilitada.
+
 MySQL foi escolhido para manter o mesmo schema tanto no banco gerenciado do SaaS quanto no Docker Compose da VPS. O `docker-compose.yml` desta distribuição usa deliberadamente o MySQL interno; uma instalação com banco externo exige uma composição própria que remova o serviço `db` e forneça `DATABASE_URL` diretamente à aplicação.
 
 ## Desenvolvimento local
@@ -138,6 +157,7 @@ Checagens de engenharia:
 ```bash
 pnpm check
 pnpm test
+pnpm test:modules
 pnpm build
 ```
 

@@ -35,6 +35,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { clearFailedLogins, isLoginRateLimited, loginRateKey, registerFailedLogin } from "./security";
 import { autoMapping, decodeImportContent, hashImport, importTargets, normalizeRow, parseTabularFile, resolveAndValidateRow, rowDedupeKey, targetFields, type ImportTarget } from "./imports";
+import { callModule, moduleHealth } from "./moduleClients";
 
 async function requireDb() {
   const db = await getDb();
@@ -80,6 +81,21 @@ const importTargetEnum = z.enum(importTargets);
 
 function importRoleAllowed(role: string) {
   return ["owner", "admin", "operator"].includes(role);
+}
+
+function assertOperationalRole(role: string) {
+  if (!importRoleAllowed(role)) throw new TRPCError({ code: "FORBIDDEN", message: "Seu perfil não possui permissão para registrar operações de campo." });
+}
+
+function validateOperationalData(data: Record<string, unknown>) {
+  const encoded = JSON.stringify(data);
+  if (!encoded || Buffer.byteLength(encoded, "utf8") > 200_000) throw new TRPCError({ code: "BAD_REQUEST", message: "O payload operacional excede o limite permitido." });
+  return data;
+}
+
+function requireOperationalId(value: unknown, label: string) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(value)) throw new TRPCError({ code: "BAD_REQUEST", message: `${label} inválido.` });
+  return value;
 }
 
 function parseImportJson(value: string | null | undefined) {
@@ -566,6 +582,80 @@ export const appRouter = router({
       const db = await requireDb();
       return db.select({ member: organizationMembers, user: { id: users.id, name: users.name, email: users.email, status: users.status } }).from(organizationMembers).innerJoin(users, eq(users.id, organizationMembers.userId)).where(eq(organizationMembers.organizationId, ctx.user.organizationId)).orderBy(asc(users.name));
     }),
+  }),
+
+  operations: router({
+    status: protectedProcedure.query(async () => {
+      const [pesagem, balanca] = await Promise.all([moduleHealth("pesagem"), moduleHealth("balanca")]);
+      return { pesagem, balanca };
+    }),
+    weighingState: protectedProcedure.query(async ({ ctx }) => {
+      return callModule<any>("pesagem", { organizationId: ctx.user.organizationId, actorUserId: ctx.user.id }, "/api/state");
+    }),
+    weighingCommand: protectedProcedure
+      .input(z.object({ action: z.enum(["animal.save", "session.save", "session.close", "weighing.save", "group.save", "group.members", "list.save", "list.assign", "field.save", "filter.save", "health.save", "import.animals"]), data: z.record(z.string(), z.any()) }))
+      .mutation(async ({ ctx, input }) => {
+        assertOperationalRole(ctx.user.organizationRole);
+        const data = validateOperationalData(input.data);
+        const db = await requireDb();
+        const requestId = randomUUID();
+        await audit(db, { organizationId: ctx.user.organizationId, entityType: "pesagem", entityId: requestId, action: `${input.action}.requested`, actorUserId: ctx.user.id, newValue: { module: "pesagem", requestId, data } });
+        const result = await callModule<any>("pesagem", { organizationId: ctx.user.organizationId, actorUserId: ctx.user.id }, "/api/commands", { method: "POST", body: { action: input.action, data } });
+        try {
+          await audit(db, { organizationId: ctx.user.organizationId, entityType: "pesagem", entityId: String(result.id ?? requestId), action: `${input.action}.completed`, actorUserId: ctx.user.id, newValue: { module: "pesagem", requestId, result } });
+        } catch (error) {
+          console.error("[Bonança] operação de pesagem concluída, mas auditoria final indisponível", error);
+        }
+        return result;
+      }),
+    mixerOverview: protectedProcedure.query(async ({ ctx }) => {
+      const context = { organizationId: ctx.user.organizationId, actorUserId: ctx.user.id };
+      const [dashboard, stock, batches, ingredients, machines, pens, recipes] = await Promise.all([
+        callModule<any>("balanca", context, "/api/dashboard"),
+        callModule<any[]>("balanca", context, "/api/stock"),
+        callModule<any[]>("balanca", context, "/api/batches"),
+        callModule<any[]>("balanca", context, "/api/ingredients"),
+        callModule<any[]>("balanca", context, "/api/machines"),
+        callModule<any[]>("balanca", context, "/api/pens"),
+        callModule<any[]>("balanca", context, "/api/recipes"),
+      ]);
+      return { dashboard, stock, batches, ingredients, machines, pens, recipes };
+    }),
+    mixerCommand: protectedProcedure
+      .input(z.object({
+        action: z.enum(["ingredient.create", "machine.create", "pen.create", "recipe.create", "stock.entry", "batch.plan", "batch.complete", "batch.cancel", "refusal.create", "milking.create"]),
+        data: z.record(z.string(), z.any()),
+        idempotencyKey: z.string().min(8).max(120).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        assertOperationalRole(ctx.user.organizationRole);
+        const context = { organizationId: ctx.user.organizationId, actorUserId: ctx.user.id };
+        const data = validateOperationalData(input.data);
+        const db = await requireDb();
+        const requestId = randomUUID();
+        await audit(db, { organizationId: ctx.user.organizationId, entityType: "balanca_misturadora", entityId: requestId, action: `${input.action}.requested`, actorUserId: ctx.user.id, newValue: { module: "balanca_misturadora", requestId, data } });
+        if (["batch.complete", "batch.cancel"].includes(input.action)) requireOperationalId(data.batchId, "Batida");
+        const routes: Record<string, { path: string; body: unknown; idempotencyKey?: string }> = {
+          "ingredient.create": { path: "/api/ingredients", body: data },
+          "machine.create": { path: "/api/machines", body: data },
+          "pen.create": { path: "/api/pens", body: data },
+          "recipe.create": { path: "/api/recipes", body: data },
+          "stock.entry": { path: "/api/movements", body: { ...data, kind: "entry" } },
+          "batch.plan": { path: "/api/batches", body: data },
+          "batch.complete": { path: `/api/batches/${String(data.batchId)}/complete`, body: { actualKg: data.actualKg }, idempotencyKey: input.idempotencyKey ?? requestId },
+          "batch.cancel": { path: `/api/batches/${String(data.batchId)}/cancel`, body: {} },
+          "refusal.create": { path: "/api/refusals", body: data },
+          "milking.create": { path: "/api/milking", body: data },
+        };
+        const route = routes[input.action];
+        const result = await callModule<any>("balanca", context, route.path, { method: "POST", body: route.body, idempotencyKey: route.idempotencyKey });
+        try {
+          await audit(db, { organizationId: ctx.user.organizationId, entityType: "balanca_misturadora", entityId: String(result.id ?? requestId), action: `${input.action}.completed`, actorUserId: ctx.user.id, newValue: { module: "balanca_misturadora", requestId, result } });
+        } catch (error) {
+          console.error("[Bonança] operação da balança concluída, mas auditoria final indisponível", error);
+        }
+        return result;
+      }),
   }),
 });
 

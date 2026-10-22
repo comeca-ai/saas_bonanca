@@ -39,6 +39,14 @@
 - [x] Lançamentos econômicos registram custo, receita ou ajuste, competência, valor, centro de resultado e vínculos controlados.
 - [x] Fontes primárias, sistemas existentes, lançamentos de campo, planilhas e simulações são diferenciados por confiança/origem desde a entrada.
 
+## Microserviços de operação de campo
+
+- [x] O módulo de Pesagem e desempenho animal opera como serviço interno, com animais, sessões, pesos, GMD, grupos, classificações, campos e histórico isolados por organização.
+- [x] O módulo de Balança Misturadora opera como serviço interno, com máquinas, ingredientes, receitas versionadas, currais, estoque, batidas idempotentes, sobras, ordenha e indicadores segregados por organização.
+- [x] O app Bonança funciona como gateway autenticado: deriva organização e usuário da sessão, aplica os papéis antes dos comandos, usa tokens internos distintos e replica operações aprovadas para a auditoria central.
+- [x] A tela “Pesagem e alimentação” mostra saúde dos dois serviços e permite registrar animais, sessões e pesos; ingredientes, máquinas, currais, estoque, receitas, batidas e pesos reais sem expor endpoints internos ao navegador.
+- [ ] A integração com dispositivos físicos de pesagem, incluindo serial, Bluetooth, TCP, nuvem, firmware, estabilidade e ACK, só será ativada após homologação do fabricante e testes em equipamento real; o sistema não simula telemetria como leitura física.
+
 ## Importação e reconciliação de bases
 
 - [x] A tela de Importação recebe CSV, XLS, XLSX e JSON de até 5 MB e 5.000 linhas, com escolha do destino entre lotes, eventos/pesagens, movimentações de insumo e lançamentos econômicos.
@@ -57,7 +65,7 @@
 
 ## Entrega Docker/self-hosted
 
-- [ ] `docker compose up -d --build` sobe aplicação e MySQL com volume persistente, healthcheck e restart policy.
+- [ ] `docker compose up -d --build` sobe aplicação, MySQL, Pesagem e Balança Misturadora com volumes persistentes, healthchecks, restart policy e rede Docker privada; somente a porta do app é publicada.
 - [x] O container aplica migrations de forma idempotente antes de iniciar a aplicação e disponibiliza `/api/health` sem autenticação.
 - [x] `.env.example` documenta banco, segredo de sessão, senha de seed, cookie seguro, origem e porta.
 - [x] `README.md` documenta instalação, login inicial, logs, atualização, backup e restore.

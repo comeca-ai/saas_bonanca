@@ -16,6 +16,7 @@ O modelo de domínio deve refletir o setor: lotes em diferentes regimes, ciclos 
 - **Autenticação:** sessão própria do Bonança com e-mail/senha, hash scrypt, cookie httpOnly e roles por organização. A implementação é independente de Manus para o container funcionar em outro servidor.
 - **Tenancy e isolamento:** `organizations` representam clientes/grupos; `organization_members` controla papéis (`owner`, `admin`, `analyst`, `operator`, `viewer`); `business_units` isolam empresas, propriedades, holdings, SPEs e unidades operacionais. Toda leitura/escrita de negócio é filtrada pela organização e, onde aplicável, pela unidade ativa.
 - **Entrega:** `Dockerfile` multi-stage, `docker-compose.yml`, `.env.example`, entrypoint que aplica migrations antes de iniciar, healthcheck, volume persistente do MySQL e documentação de backup/upgrade.
+- **Módulos operacionais:** os serviços `pesagem` (Python/SQLite por organização) e `balanca-misturadora` (Node/SQLite com registros segregados por organização) ficam na rede Docker privada. O app Bonança é o gateway: deriva organização, usuário e papel da sessão, autentica a chamada interna com tokens próprios, restringe comandos pelo papel e replica a decisão relevante à auditoria central. As portas `8080` dos módulos não são publicadas.
 
 ## 3. Modelo de dados
 
@@ -102,6 +103,7 @@ A extensão de novos domínios ocorre sem transformar tudo em atributos genéric
 - Regras de qualidade com severidade, condição, resultado e alertas abertos.
 - Configuração de domínios, atividades e campos extensíveis versionados.
 - Importação controlada de lotes, eventos/pesagens, movimentações de insumo e lançamentos econômicos; cada lote mantém arquivo original, hash, cabeçalhos, mapeamento, linhas, erros, duplicidades e decisão de aprovação.
+- Hub de operações para pesagem/desempenho animal e alimentação por balança misturadora: animais, sessões, pesos e GMD; ingredientes, máquinas, currais, receitas, estoque, batidas e pesos reais. A telemetria de equipamento físico permanece não homologada e nunca é simulada como leitura real.
 
 ### Calculadora “Quanto custa crescer”
 
@@ -121,7 +123,7 @@ Tela separada, com faixas ilustrativas e claramente marcadas como planejamento: 
 ## 7. Docker e instalação em outro servidor
 
 - `Dockerfile` multi-stage instala dependências com pnpm 10.18.0, gera frontend/backend e inicia `node dist/index.js`.
-- `docker-compose.yml` sobe `bonanca` + `mysql:8.4`, com rede privada, volume `bonanca_mysql_data`, healthcheck e restart policy.
+- `docker-compose.yml` sobe `app`, `db`, `pesagem` e `balanca-misturadora`; todos os serviços usam a rede privada `bonanca_internal`, volumes próprios e healthchecks. Somente a porta do app é publicada; tokens internos diferentes protegem cada microserviço.
 - `.env.example` documenta `DATABASE_URL`, `SESSION_SECRET`, `SEED_ADMIN_PASSWORD`, `COOKIE_SECURE`, `APP_ORIGIN` e `PORT`.
 - `docker-entrypoint.sh` aguarda o MySQL, executa `drizzle-kit migrate` de forma idempotente, executa seed apenas quando vazio e inicia o servidor.
 - `README.md` explica instalação, primeiro login, logs, atualização, backup e restore.

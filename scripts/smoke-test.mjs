@@ -59,7 +59,7 @@ try {
 
   const routesResponse = await fetch(`${baseUrl}/manus-routes.json`);
   const { body: routesBody } = await parseResponse(routesResponse, "Manifesto de rotas");
-  const expectedRoutes = ["/", "/livestock", "/imports", "/core", "/data-control", "/catalog", "/audit", "/settings", "/growth-calculator"];
+  const expectedRoutes = ["/", "/livestock", "/operations", "/imports", "/core", "/data-control", "/catalog", "/audit", "/settings", "/growth-calculator"];
   ok("Manifesto declara as páginas principais", expectedRoutes.every(route => routesBody.routes?.some(item => item.path === route)));
 
   const unauthenticated = await fetch(`${baseUrl}/api/trpc/dashboard.summary?input=${encodeURIComponent(JSON.stringify({ json: null }))}`);

@@ -56,6 +56,11 @@ coverage/
 # Dependency directories
 jspm_packages/
 
+# Python runtime and test caches
+.venv/
+__pycache__/
+*.py[cod]
+
 # TypeScript cache
 *.tsbuildinfo
 

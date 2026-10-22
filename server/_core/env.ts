@@ -13,6 +13,10 @@ export const ENV = {
   get seedAdminPassword() { return process.env.SEED_ADMIN_PASSWORD ?? ""; },
   get sessionSecret() { return process.env.SESSION_SECRET ?? ""; },
   get appOrigin() { return process.env.APP_ORIGIN?.replace(/\/$/, "") ?? ""; },
+  get pesagemServiceUrl() { return process.env.PESAGEM_SERVICE_URL?.replace(/\/$/, "") ?? (process.env.NODE_ENV === "production" ? "http://pesagem:8080" : "http://127.0.0.1:8081"); },
+  get pesagemServiceToken() { return process.env.PESAGEM_SERVICE_TOKEN ?? ""; },
+  get balancaServiceUrl() { return process.env.BALANCA_SERVICE_URL?.replace(/\/$/, "") ?? (process.env.NODE_ENV === "production" ? "http://balanca-misturadora:8080" : "http://127.0.0.1:8082"); },
+  get balancaServiceToken() { return process.env.BALANCA_SERVICE_TOKEN ?? ""; },
 };
 
 export function assertProductionSecrets() {

@@ -13,6 +13,7 @@ function Router() {
     <Route path="/" component={Home} />
     <Route path="/livestock" component={Home} />
     <Route path="/livestock/:id" component={Home} />
+    <Route path="/operations" component={Home} />
     <Route path="/core" component={Home} />
     <Route path="/data-control" component={Home} />
     <Route path="/catalog" component={Home} />

@@ -16,6 +16,51 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+      start_period: 20s
+    networks:
+      - bonanca_internal
+
+  pesagem:
+    build:
+      context: ./services/pesagem
+      dockerfile: Dockerfile
+    container_name: bonanca-pesagem
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      PESAGEM_SERVICE_TOKEN: ${PESAGEM_SERVICE_TOKEN:?Defina PESAGEM_SERVICE_TOKEN no .env}
+      PESAGEM_DB_ROOT: /data
+    volumes:
+      - pesagem_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3).status == 200"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - bonanca_internal
+
+  balanca-misturadora:
+    build:
+      context: ./services/balanca-misturadora
+      dockerfile: Dockerfile
+    container_name: bonanca-balanca-misturadora
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DB_PATH: /data/mixer.sqlite
+      BALANCA_SERVICE_TOKEN: ${BALANCA_SERVICE_TOKEN:?Defina BALANCA_SERVICE_TOKEN no .env}
+    volumes:
+      - balanca_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     networks:
       - bonanca_internal
 
@@ -35,8 +80,16 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?Defina SEED_ADMIN_PASSWORD no .env}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      PESAGEM_SERVICE_URL: http://pesagem:8080
+      PESAGEM_SERVICE_TOKEN: ${PESAGEM_SERVICE_TOKEN:?Defina PESAGEM_SERVICE_TOKEN no .env}
+      BALANCA_SERVICE_URL: http://balanca-misturadora:8080
+      BALANCA_SERVICE_TOKEN: ${BALANCA_SERVICE_TOKEN:?Defina BALANCA_SERVICE_TOKEN no .env}
     depends_on:
       db:
+        condition: service_healthy
+      pesagem:
+        condition: service_healthy
+      balanca-misturadora:
         condition: service_healthy
     ports:
       - "${BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-3000}:3000"
@@ -45,14 +98,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 20s
     networks:
       - bonanca_internal
 
 volumes:
   bonanca_mysql_data:
     name: bonanca_mysql_data
+  pesagem_data:
+    name: bonanca_pesagem_data
+  balanca_data:
+    name: bonanca_balanca_data
 
 networks:
   bonanca_internal:
     name: bonanca_internal
     driver: bridge
+    internal: true
