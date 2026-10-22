@@ -75,6 +75,7 @@ services:
     environment:
       DATABASE_URL: mysql://${MYSQL_USER:-bonanca}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE:-bonanca}
       NODE_ENV: production
+      BONANCA_SELF_HOSTED: "true"
       PORT: 3000
       SESSION_SECRET: ${SESSION_SECRET:?Defina SESSION_SECRET no .env}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?Defina SEED_ADMIN_PASSWORD no .env}

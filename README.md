@@ -140,7 +140,7 @@ A tela **Pesagem e alimentação** chama os microserviços pelo gateway do Bonan
 
 Os módulos aceitam lançamentos manuais. Eles **não** se conectam automaticamente a indicadores, balanças, Bluetooth, portas seriais, TCP ou APIs de fabricante. Uma integração de equipamento deve ser homologada com modelo, firmware, protocolo, estabilidade de leitura, ACK, idempotência e testes físicos antes de ser habilitada.
 
-No SaaS gerenciado de container único, o núcleo Bonança permanece disponível, mas esses dois serviços aparecem como **indisponíveis** até existir uma infraestrutura de serviços compatível. Para usar Pesagem e Balança Misturadora, instale esta distribuição pelo `docker compose` da VPS: ele exige os tokens internos e inicia os quatro containers de forma conjunta.
+No SaaS gerenciado de container único, o núcleo Bonança permanece disponível, mas esses dois serviços aparecem como **indisponíveis** até existir uma infraestrutura de serviços compatível. Nesse modo a chave de sessão é efêmera e os logins são renovados quando o container reinicia. Para operação persistente e para usar Pesagem e Balança Misturadora, instale esta distribuição pelo `docker compose` da VPS: ele exige `SESSION_SECRET` estável, os tokens internos e inicia os quatro containers de forma conjunta.
 
 MySQL foi escolhido para manter o mesmo schema tanto no banco gerenciado do SaaS quanto no Docker Compose da VPS. O `docker-compose.yml` desta distribuição usa deliberadamente o MySQL interno; uma instalação com banco externo exige uma composição própria que remova o serviço `db` e forneça `DATABASE_URL` diretamente à aplicação.
 
