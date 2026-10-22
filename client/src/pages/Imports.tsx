@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, FileSpreadsheet, FileWarning, History, RefreshCw, Rows3, ShieldCheck, UploadCloud, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, Download, FileSpreadsheet, FileWarning, History, RefreshCw, Rows3, ShieldCheck, UploadCloud, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 const targetLabels: Record<string, string> = {
@@ -156,7 +156,7 @@ export default function ImportsView() {
 
     <div className="import-layout">
       <section className="panel import-upload-card">
-        <div className="panel-header"><div><span className="eyebrow">1 · Receber arquivo</span><h2>Nova importação</h2></div><FileSpreadsheet size={18} className="panel-header-icon" /></div>
+        <div className="panel-header"><div><span className="eyebrow">1 · Receber arquivo</span><h2>Nova importação</h2></div><div className="toolbar-actions"><a className="secondary-button" href="/templates/Template_Dados_Bonanca.xlsx" download="Template_Dados_Bonanca.xlsx"><Download size={14} />Modelo Excel</a><FileSpreadsheet size={18} className="panel-header-icon" /></div></div>
         <form onSubmit={handleUpload}>
           <label className="import-label">O que este arquivo representa<select value={targetEntity} onChange={event => setTargetEntity(event.target.value)}><option value="livestock_lot">Lotes de pecuária</option><option value="lot_event">Eventos e pesagens de lote</option><option value="input_movement">Movimentações de insumo</option><option value="economic_entry">Lançamentos econômicos</option></select></label>
           <label className="import-label">Unidade padrão <span className="field-hint">opcional, usada quando a planilha não traz a unidade</span><select value={businessUnitId} onChange={event => setBusinessUnitId(event.target.value)}><option value="">Não definir</option>{units.data?.map((unit: any) => <option key={unit.id} value={unit.id}>{unit.code} · {unit.name}</option>)}</select></label>

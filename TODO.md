@@ -50,6 +50,7 @@
 
 ## Importação e reconciliação de bases
 
+- [x] A tela oferece download do `Template_Dados_Bonanca.xlsx` oficial, com instruções, dicionário e abas de Unidades, Lotes, Movimentos, Pesagens, Consumo, Financeiro, Metas e Ações.
 - [x] A tela de Importação recebe CSV, XLS, XLSX e JSON de até 5 MB e 5.000 linhas, com escolha do destino entre lotes, eventos/pesagens, movimentações de insumo e lançamentos econômicos.
 - [x] O lote de importação preserva arquivo original em base64, hash SHA-256, nome, tamanho, cabeçalhos, mapeamento, usuário, contadores e histórico de decisões; o mesmo hash não pode ser recebido duas vezes na organização.
 - [x] Cada linha mantém número de origem, conteúdo original, dados normalizados, status e erros; aliases de cabeçalhos, datas brasileiras e números com vírgula decimal são normalizados sem sobrescrever a leitura original.
