@@ -31,6 +31,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import ImportsView from "./Imports";
 import OperationsView from "./Operations";
+import SaasAdminView from "./SaasAdmin";
 
 const navItems = [
   { path: "/", label: "Visão geral", icon: BarChart3 },
@@ -54,6 +55,7 @@ const viewMeta: Record<string, { eyebrow: string; title: string; description: st
   "/audit": { eyebrow: "Rastreabilidade", title: "Histórico de alterações", description: "Nada importante muda sem deixar rastro." },
   "/settings": { eyebrow: "Administração", title: "Configuração do espaço", description: "Ajuste unidades, acesso e o que está habilitado no seu ambiente." },
   "/growth-calculator": { eyebrow: "Planejamento", title: "Quanto custa crescer", description: "Uma ordem de grandeza para conversar sobre o próximo passo." },
+  "/saas-admin": { eyebrow: "Plataforma", title: "Administração SaaS", description: "Ciclo de vida, billing, limites e recursos dos tenants com menor privilégio." },
 };
 
 function formatNumber(value: number, digits = 0) {
@@ -101,6 +103,7 @@ function Shell({ children, currentPath }: { children: React.ReactNode; currentPa
         <Link href="/growth-calculator" className={`nav-item ${currentPath === "/growth-calculator" ? "active" : ""}`} onClick={() => setMobileOpen(false)}><Gauge size={17} /><span>Quanto custa crescer</span></Link>
       </nav>
       <div className="sidebar-bottom">
+        {user?.platformRole && user.platformRole !== "none" && <Link href="/saas-admin" className={`nav-item ${currentPath === "/saas-admin" ? "active" : ""}`}><ShieldCheck size={17} /><span>Administração SaaS</span></Link>}
         <Link href="/settings" className={`nav-item ${currentPath === "/settings" ? "active" : ""}`}><Settings2 size={17} /><span>Configuração</span></Link>
         <div className="user-card"><div className="user-avatar">{(user?.name ?? "A").slice(0, 1).toUpperCase()}</div><div className="user-copy"><b>{user?.name ?? "Administrador"}</b><small>{user?.organizationRole === "owner" ? "Owner" : "Administrador"}</small></div><button aria-label="Sair" onClick={() => logout.mutate()}><LogOut size={15} /></button></div>
       </div>
@@ -267,6 +270,7 @@ export default function Home() {
     if (basePath === "/audit") return <AuditView />;
     if (basePath === "/settings") return <SettingsView />;
     if (basePath === "/growth-calculator") return <CalculatorView />;
+    if (basePath === "/saas-admin") return <SaasAdminView />;
     return <DashboardView />;
   }, [basePath]);
   return <Shell currentPath={basePath}>{detailMatch && detailParams?.id ? <LivestockDetailView id={detailParams.id} /> : content}</Shell>;

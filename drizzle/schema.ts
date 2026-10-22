@@ -13,6 +13,7 @@ export const users = mysqlTable("users", {
   passwordHash: text("passwordHash"),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: enumText("role", ["user", "admin"]).default("user").notNull(),
+  platformRole: enumText("platformRole", ["none", "super_admin", "support", "billing", "security", "readonly"]).default("none").notNull(),
   status: enumText("status", ["active", "inactive"]).default("active").notNull(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -23,7 +24,13 @@ export const organizations = mysqlTable("organizations", {
   id: id().primaryKey(),
   name: varchar("name", { length: 160 }).notNull(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
-  status: enumText("status", ["active", "inactive"]).default("active").notNull(),
+  status: enumText("status", ["active", "suspended", "inactive"]).default("active").notNull(),
+  plan: enumText("plan", ["trial", "starter", "growth", "enterprise"]).default("trial").notNull(),
+  billingStatus: enumText("billingStatus", ["trialing", "active", "past_due", "canceled"]).default("trialing").notNull(),
+  seatLimit: int("seatLimit").default(5).notNull(),
+  trialEndsAt: timestamp("trialEndsAt"),
+  suspendedAt: timestamp("suspendedAt"),
+  suspensionReason: text("suspensionReason"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -36,7 +43,11 @@ export const organizationMembers = mysqlTable("organization_members", {
   status: enumText("status", ["active", "invited", "inactive"]).default("active").notNull(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+}, (table) => ({
+  organizationUserUnique: uniqueIndex("organization_members_organization_user_uq").on(table.organizationId, table.userId),
+  organizationIndex: index("organization_members_organization_idx").on(table.organizationId),
+  userIndex: index("organization_members_user_idx").on(table.userId),
+}));
 
 export const sessions = mysqlTable("sessions", {
   id: id().primaryKey(),
@@ -46,6 +57,52 @@ export const sessions = mysqlTable("sessions", {
   expiresAt: timestamp("expiresAt").notNull(),
   createdAt: createdAt(),
 });
+
+export const organizationInvitations = mysqlTable("organization_invitations", {
+  id: id().primaryKey(),
+  organizationId: varchar("organizationId", { length: 36 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  role: enumText("role", ["admin", "analyst", "operator", "viewer"]).default("viewer").notNull(),
+  tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
+  invitedByUserId: int("invitedByUserId").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  acceptedAt: timestamp("acceptedAt"),
+  revokedAt: timestamp("revokedAt"),
+  createdAt: createdAt(),
+}, (table) => ({
+  organizationIndex: index("organization_invitations_organization_idx").on(table.organizationId),
+  emailIndex: index("organization_invitations_email_idx").on(table.email),
+}));
+
+export const organizationFeatures = mysqlTable("organization_features", {
+  id: id().primaryKey(),
+  organizationId: varchar("organizationId", { length: 36 }).notNull(),
+  featureKey: varchar("featureKey", { length: 100 }).notNull(),
+  enabled: int("enabled").default(0).notNull(),
+  source: enumText("source", ["plan", "override", "system"]).default("plan").notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => ({
+  organizationFeatureUnique: uniqueIndex("organization_features_organization_feature_uq").on(table.organizationId, table.featureKey),
+  organizationIndex: index("organization_features_organization_idx").on(table.organizationId),
+}));
+
+export const platformAuditEvents = mysqlTable("platform_audit_events", {
+  id: id().primaryKey(),
+  actorUserId: int("actorUserId").notNull(),
+  action: varchar("action", { length: 100 }).notNull(),
+  targetType: varchar("targetType", { length: 80 }).notNull(),
+  targetId: varchar("targetId", { length: 100 }).notNull(),
+  previousValue: longtext("previousValue"),
+  newValue: longtext("newValue"),
+  reason: text("reason"),
+  ipAddress: varchar("ipAddress", { length: 64 }),
+  createdAt: createdAt(),
+}, (table) => ({
+  targetIndex: index("platform_audit_target_idx").on(table.targetType, table.targetId),
+  actorIndex: index("platform_audit_actor_idx").on(table.actorUserId),
+  createdIndex: index("platform_audit_created_idx").on(table.createdAt),
+}));
 
 export const businessUnits = mysqlTable("business_units", {
   id: id().primaryKey(),

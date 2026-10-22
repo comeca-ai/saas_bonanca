@@ -72,6 +72,8 @@ A extensão de novos domínios ocorre sem transformar tudo em atributos genéric
 10. Cada organização só enxerga seus dados; a unidade ativa restringe consultas quando o usuário não possui escopo de grupo. Dados pessoais são minimizados, mascarados na interface e sujeitos a retenção configurável.
 11. Dev, homologação e produção usam ambientes e migrations versionadas separados; a criação de um domínio novo deve ser testada fora da base de produção.
 12. Backup lógico do MySQL e restore por ponto de controle são documentados no pacote self-hosted.
+13. A administração da plataforma fica separada da administração de cada organização: papéis globais explícitos (`super_admin`, `support`, `billing`, `security`, `readonly`), menor privilégio por ação, trilha administrativa própria e nenhum acesso global implícito por ser owner de um tenant.
+14. O console SaaS administra ciclo de vida do tenant, plano, status de cobrança, limite de assentos, recursos habilitados e revogação de sessões ao suspender uma organização; dados operacionais continuam filtrados pelo `organizationId`.
 
 ## 5. Escopo funcional do MVP SaaS
 
@@ -80,6 +82,15 @@ A extensão de novos domínios ocorre sem transformar tudo em atributos genéric
 - Login por e-mail/senha, cadastro da primeira organização, logout e sessão httpOnly.
 - Papéis por organização e seletor de unidade, sem acesso entre tenants.
 - Seed idempotente com “Bonança Demo” e `admin@bonanca.local` usando `SEED_ADMIN_PASSWORD`, somente quando a base está vazia.
+
+### Administração SaaS multitenant
+
+- Console separado em `/saas-admin`, visível somente para usuários com registro explícito de papel de plataforma; `owner` e `admin` de uma organização não recebem acesso global automaticamente.
+- Visão administrativa com quantidade de organizações, membros ativos, tenants suspensos, contas em atenção e distribuição de planos.
+- Consulta de organizações com status operacional, plano, cobrança, limite de assentos, data de trial e quantidade de membros, sem expor credenciais ou dados operacionais completos.
+- Ações com menor privilégio: suporte pode consultar e suspender/reactivar; billing pode alterar plano, cobrança e assentos; security pode consultar e suspender; super_admin pode executar todas as ações.
+- Suspensão de organização revoga sessões ativas daquele tenant, registra motivo, ator, valores anterior/novo e não apaga dados.
+- Alterações administrativas ficam em uma trilha global de plataforma, separada da auditoria operacional do tenant.
 
 ### Painel executivo
 

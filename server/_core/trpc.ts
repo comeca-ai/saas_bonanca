@@ -23,3 +23,12 @@ export const adminProcedure = t.procedure.use(
     return next({ ctx: { ...ctx, user: ctx.user } });
   }),
 );
+
+export const platformAdminProcedure = t.procedure.use(
+  t.middleware(async ({ ctx, next }) => {
+    if (!ctx.user || !ctx.user.platformRole || ctx.user.platformRole === "none") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito à administração da plataforma." });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+);

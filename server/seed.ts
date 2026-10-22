@@ -34,7 +34,12 @@ export async function seedDatabase() {
   if (!db) return { seeded: false, reason: "database_unavailable" };
 
   const existing = await db.select({ value: count() }).from(organizations);
-  if (Number(existing[0]?.value ?? 0) > 0) return { seeded: false, reason: "already_seeded" };
+  if (Number(existing[0]?.value ?? 0) > 0) {
+    if (ENV.platformAdminEmail) {
+      await db.update(users).set({ platformRole: "super_admin" }).where(and(eq(users.email, ENV.platformAdminEmail), eq(users.status, "active")));
+    }
+    return { seeded: false, reason: "already_seeded", platformAdminBootstrapped: Boolean(ENV.platformAdminEmail) };
+  }
 
   const now = new Date();
   const organizationId = randomUUID();
@@ -53,6 +58,7 @@ export async function seedDatabase() {
   const candidateConsumptionId = randomUUID();
   const adminPassword = ENV.seedAdminPassword;
   if (!adminPassword) throw new Error("SEED_ADMIN_PASSWORD deve ser configurado antes de criar a base inicial");
+  const isPlatformAdmin = Boolean(ENV.platformAdminEmail && ENV.platformAdminEmail === ENV.seedAdminEmail.trim().toLowerCase());
 
   const adminOpenId = `local:${randomUUID().slice(0, 18)}`;
   await db.insert(users).values({
@@ -61,14 +67,15 @@ export async function seedDatabase() {
     email: ENV.seedAdminEmail,
     passwordHash: hashPassword(adminPassword),
     loginMethod: "password",
-    role: "admin",
+    role: "user",
+    platformRole: isPlatformAdmin ? "super_admin" : "none",
     status: "active",
     lastSignedIn: now,
   });
   const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.openId, adminOpenId)).limit(1);
   if (!admin) throw new Error("Seed admin user was not created");
 
-  await db.insert(organizations).values({ id: organizationId, name: "Bonança Demo", slug: "bonanca-demo" });
+  await db.insert(organizations).values({ id: organizationId, name: "Bonança Demo", slug: "bonanca-demo", plan: "trial", billingStatus: "trialing", seatLimit: 25, trialEndsAt: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000) });
   await db.insert(organizationMembers).values({ id: randomUUID(), organizationId, userId: admin.id, role: "owner", status: "active" });
   await db.insert(businessUnits).values([
     { id: groupUnitId, organizationId, code: "GRP", name: "Grupo Bonança", unitType: "group", status: "active", notes: "Unidade raiz do tenant demo." },
@@ -134,7 +141,7 @@ export async function seedDatabase() {
   await db.insert(fieldConfigs).values({ id: randomUUID(), organizationId, domainId, fieldKey: "entry_weight", fieldLabel: "Peso médio de entrada", fieldType: "number", configVersion: 1, required: 1, status: "active" });
   await db.insert(auditEvents).values({ id: randomUUID(), organizationId, entityType: "organization", entityId: organizationId, action: "seeded", actorUserId: admin.id, newValue: JSON.stringify({ source: "bonanca_demo_seed", version: 1 }), reason: "Base demonstrativa inicial" });
 
-  return { seeded: true, email: ENV.seedAdminEmail, password: adminPassword };
+  return { seeded: true, email: ENV.seedAdminEmail, password: adminPassword, platformAdminBootstrapped: isPlatformAdmin };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

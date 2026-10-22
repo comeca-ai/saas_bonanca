@@ -7,6 +7,14 @@
 - [x] O primeiro seed é idempotente, só roda quando a base está vazia e cria a organização demo e o administrador a partir de `SEED_ADMIN_PASSWORD`, sem sobrescrever usuários posteriores.
 - [ ] Dados pessoais são minimizados, mascarados na interface e contemplam retenção e backup documentados; uma organização nunca enxerga outra.
 
+## Administração SaaS multitenant
+
+- [ ] A plataforma separa papéis globais (`super_admin`, `support`, `billing`, `security`, `readonly`) dos papéis de cada organização; ser `owner` ou `admin` de um tenant não concede acesso global automaticamente.
+- [ ] O console `/saas-admin` mostra organizações, membros ativos, planos, cobrança, limites de assentos, trials e tenants em atenção sem expor credenciais ou dados operacionais completos.
+- [ ] Ações administrativas respeitam menor privilégio: suporte/security podem atuar no status do tenant, billing pode alterar plano/cobrança/assentos, readonly apenas consulta e super_admin possui controle total.
+- [ ] Suspender uma organização revoga suas sessões ativas, preserva os dados, exige motivo e registra valores anterior/novo, ator e data em uma auditoria global de plataforma.
+- [ ] O ciclo de vida administrativo possui migrations aditivas, bootstrap explícito do primeiro administrador de plataforma e não depende de e-mail do tenant para conceder acesso global.
+
 ## Núcleo multinegócio e extensibilidade
 
 - [x] O modelo suporta organizações, unidades de negócio hierárquicas, domínios, atividades, operações, ativos, contratos, contrapartes, centros de resultado e documentos.

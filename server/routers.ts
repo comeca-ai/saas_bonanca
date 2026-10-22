@@ -20,18 +20,21 @@ import {
   kpiDefinitions,
   livestockLots,
   lotEvents,
+  organizationFeatures,
   organizationMembers,
   organizations,
+  platformAuditEvents,
   qualityAlerts,
   qualityRules,
   recordLinks,
   resultCenters,
+  sessions,
   users,
 } from "../drizzle/schema";
 import { clearSession, loginUser, registerUser } from "./auth";
 import { getDb } from "./db";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, platformAdminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { clearFailedLogins, isLoginRateLimited, loginRateKey, registerFailedLogin } from "./security";
 import { autoMapping, decodeImportContent, hashImport, importTargets, normalizeRow, parseTabularFile, resolveAndValidateRow, rowDedupeKey, targetFields, type ImportTarget } from "./imports";
@@ -85,6 +88,17 @@ function importRoleAllowed(role: string) {
 
 function assertOperationalRole(role: string) {
   if (!importRoleAllowed(role)) throw new TRPCError({ code: "FORBIDDEN", message: "Seu perfil não possui permissão para registrar operações de campo." });
+}
+
+type PlatformAction = "read" | "status" | "billing";
+
+function assertPlatformAction(role: string, action: PlatformAction) {
+  const allowed: Record<PlatformAction, string[]> = {
+    read: ["super_admin", "support", "billing", "security", "readonly"],
+    status: ["super_admin", "support", "security"],
+    billing: ["super_admin", "billing"],
+  };
+  if (!allowed[action].includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: "Seu papel de plataforma não permite esta ação." });
 }
 
 function validateOperationalData(data: Record<string, unknown>) {
@@ -575,6 +589,110 @@ export const appRouter = router({
       const db = await requireDb();
       return db.select({ event: auditEvents, user: { id: users.id, name: users.name, email: users.email } }).from(auditEvents).leftJoin(users, eq(users.id, auditEvents.actorUserId)).where(eq(auditEvents.organizationId, ctx.user.organizationId)).orderBy(desc(auditEvents.createdAt)).limit(100);
     }),
+  }),
+
+  saasAdmin: router({
+    summary: platformAdminProcedure.query(async ({ ctx }) => {
+      assertPlatformAction(ctx.user.platformRole, "read");
+      const db = await requireDb();
+      const [total, active, suspended, members, attention, planRows] = await Promise.all([
+        db.select({ value: count() }).from(organizations),
+        db.select({ value: count() }).from(organizations).where(eq(organizations.status, "active")),
+        db.select({ value: count() }).from(organizations).where(eq(organizations.status, "suspended")),
+        db.select({ value: count() }).from(organizationMembers).where(eq(organizationMembers.status, "active")),
+        db.select({ value: count() }).from(organizations).where(or(eq(organizations.billingStatus, "past_due"), eq(organizations.status, "suspended"))),
+        db.select({ plan: organizations.plan, value: count() }).from(organizations).groupBy(organizations.plan),
+      ]);
+      return {
+        totalOrganizations: Number(total[0]?.value ?? 0),
+        activeOrganizations: Number(active[0]?.value ?? 0),
+        suspendedOrganizations: Number(suspended[0]?.value ?? 0),
+        activeMembers: Number(members[0]?.value ?? 0),
+        attentionOrganizations: Number(attention[0]?.value ?? 0),
+        plans: planRows.map((row: any) => ({ plan: row.plan, count: Number(row.value ?? 0) })),
+      };
+    }),
+
+    organizations: platformAdminProcedure.query(async ({ ctx }) => {
+      assertPlatformAction(ctx.user.platformRole, "read");
+      const db = await requireDb();
+      const rows = await db.select().from(organizations).orderBy(desc(organizations.createdAt)).limit(100);
+      const memberRows = await db.select({ organizationId: organizationMembers.organizationId, value: count() }).from(organizationMembers).where(eq(organizationMembers.status, "active")).groupBy(organizationMembers.organizationId);
+      const memberCounts = new Map(memberRows.map((row: any) => [row.organizationId, Number(row.value ?? 0)]));
+      return rows.map((organization: typeof organizations.$inferSelect) => ({ organization, activeMembers: memberCounts.get(organization.id) ?? 0 }));
+    }),
+
+    detail: platformAdminProcedure
+      .input(z.object({ organizationId: z.string().min(8).max(100) }))
+      .query(async ({ ctx, input }) => {
+        assertPlatformAction(ctx.user.platformRole, "read");
+        const db = await requireDb();
+        const organizationRows = await db.select().from(organizations).where(eq(organizations.id, input.organizationId)).limit(1);
+        const organization = organizationRows[0];
+        if (!organization) throw new TRPCError({ code: "NOT_FOUND", message: "Organização não encontrada" });
+        const [members, features, auditRows] = await Promise.all([
+          db.select({ member: organizationMembers, user: { id: users.id, name: users.name, email: users.email, status: users.status, lastSignedIn: users.lastSignedIn } }).from(organizationMembers).innerJoin(users, eq(users.id, organizationMembers.userId)).where(eq(organizationMembers.organizationId, input.organizationId)).orderBy(asc(users.name)),
+          db.select().from(organizationFeatures).where(eq(organizationFeatures.organizationId, input.organizationId)).orderBy(asc(organizationFeatures.featureKey)),
+          db.select({ event: platformAuditEvents, actor: { id: users.id, name: users.name, email: users.email } }).from(platformAuditEvents).leftJoin(users, eq(users.id, platformAuditEvents.actorUserId)).where(and(eq(platformAuditEvents.targetType, "organization"), eq(platformAuditEvents.targetId, input.organizationId))).orderBy(desc(platformAuditEvents.createdAt)).limit(25),
+        ]);
+        return { organization, members, features, audit: auditRows };
+      }),
+
+    updateStatus: platformAdminProcedure
+      .input(z.object({ organizationId: z.string().min(8).max(100), status: z.enum(["active", "suspended"]), reason: z.string().trim().min(10).max(500) }))
+      .mutation(async ({ ctx, input }) => {
+        assertPlatformAction(ctx.user.platformRole, "status");
+        const db = await requireDb();
+        const currentRows = await db.select().from(organizations).where(eq(organizations.id, input.organizationId)).limit(1);
+        const current = currentRows[0];
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Organização não encontrada" });
+        if (current.status === input.status) return { success: true, status: current.status };
+        const nextValue = { status: input.status, suspendedAt: input.status === "suspended" ? new Date() : null, suspensionReason: input.status === "suspended" ? input.reason : null };
+        await db.transaction(async (tx: any) => {
+          await tx.update(organizations).set({ ...nextValue, updatedAt: new Date() }).where(and(eq(organizations.id, input.organizationId), eq(organizations.status, current.status)));
+          if (input.status === "suspended") await tx.delete(sessions).where(eq(sessions.organizationId, input.organizationId));
+          await tx.insert(platformAuditEvents).values({ id: randomUUID(), actorUserId: ctx.user.id, action: `organization.${input.status}`, targetType: "organization", targetId: input.organizationId, previousValue: JSON.stringify({ status: current.status, suspendedAt: current.suspendedAt, suspensionReason: current.suspensionReason }), newValue: JSON.stringify(nextValue), reason: input.reason, ipAddress: ctx.req.ip ?? null });
+        });
+        return { success: true, status: input.status };
+      }),
+
+    updatePlan: platformAdminProcedure
+      .input(z.object({ organizationId: z.string().min(8).max(100), plan: z.enum(["trial", "starter", "growth", "enterprise"]), billingStatus: z.enum(["trialing", "active", "past_due", "canceled"]), seatLimit: z.number().int().min(1).max(10000), trialEndsAt: z.string().regex(datePattern).nullable().optional(), reason: z.string().trim().min(10).max(500) }))
+      .mutation(async ({ ctx, input }) => {
+        assertPlatformAction(ctx.user.platformRole, "billing");
+        const db = await requireDb();
+        const currentRows = await db.select().from(organizations).where(eq(organizations.id, input.organizationId)).limit(1);
+        const current = currentRows[0];
+        if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Organização não encontrada" });
+        const activeMemberRows = await db.select({ value: count() }).from(organizationMembers).where(and(eq(organizationMembers.organizationId, input.organizationId), eq(organizationMembers.status, "active")));
+        if (input.seatLimit < Number(activeMemberRows[0]?.value ?? 0)) throw new TRPCError({ code: "CONFLICT", message: "O limite de assentos não pode ficar abaixo dos membros ativos." });
+        const nextValue = { plan: input.plan, billingStatus: input.billingStatus, seatLimit: input.seatLimit, trialEndsAt: input.trialEndsAt === undefined ? current.trialEndsAt : input.trialEndsAt ? new Date(`${input.trialEndsAt}T23:59:59.000Z`) : null };
+        await db.transaction(async (tx: any) => {
+          await tx.update(organizations).set({ ...nextValue, updatedAt: new Date() }).where(eq(organizations.id, input.organizationId));
+          await tx.insert(platformAuditEvents).values({ id: randomUUID(), actorUserId: ctx.user.id, action: "organization.billing_updated", targetType: "organization", targetId: input.organizationId, previousValue: JSON.stringify({ plan: current.plan, billingStatus: current.billingStatus, seatLimit: current.seatLimit, trialEndsAt: current.trialEndsAt }), newValue: JSON.stringify(nextValue), reason: input.reason, ipAddress: ctx.req.ip ?? null });
+        });
+        return { success: true };
+      }),
+
+    setFeature: platformAdminProcedure
+      .input(z.object({ organizationId: z.string().min(8).max(100), featureKey: z.enum(["livestock", "imports", "operations", "catalog", "growth_calculator"]), enabled: z.boolean(), reason: z.string().trim().min(10).max(500) }))
+      .mutation(async ({ ctx, input }) => {
+        assertPlatformAction(ctx.user.platformRole, "billing");
+        const db = await requireDb();
+        const organizationRows = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, input.organizationId)).limit(1);
+        if (!organizationRows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Organização não encontrada" });
+        const currentRows = await db.select().from(organizationFeatures).where(and(eq(organizationFeatures.organizationId, input.organizationId), eq(organizationFeatures.featureKey, input.featureKey))).limit(1);
+        const current = currentRows[0];
+        await db.transaction(async (tx: any) => {
+          if (current) {
+            await tx.update(organizationFeatures).set({ enabled: input.enabled ? 1 : 0, source: "override", updatedAt: new Date() }).where(eq(organizationFeatures.id, current.id));
+          } else {
+            await tx.insert(organizationFeatures).values({ id: randomUUID(), organizationId: input.organizationId, featureKey: input.featureKey, enabled: input.enabled ? 1 : 0, source: "override" });
+          }
+          await tx.insert(platformAuditEvents).values({ id: randomUUID(), actorUserId: ctx.user.id, action: "organization.feature_updated", targetType: "organization", targetId: input.organizationId, previousValue: JSON.stringify({ featureKey: input.featureKey, enabled: Boolean(current?.enabled) }), newValue: JSON.stringify({ featureKey: input.featureKey, enabled: input.enabled }), reason: input.reason, ipAddress: ctx.req.ip ?? null });
+        });
+        return { success: true };
+      }),
   }),
 
   organization: router({

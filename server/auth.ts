@@ -16,6 +16,7 @@ export type SessionUser = typeof users.$inferSelect & {
   organizationName: string;
   organizationSlug: string;
   organizationRole: "owner" | "admin" | "analyst" | "operator" | "viewer";
+  platformRole: "none" | "super_admin" | "support" | "billing" | "security" | "readonly";
 };
 
 function normalizeEmail(email: string) {
@@ -106,6 +107,7 @@ export async function getSessionUser(req: Request): Promise<SessionUser | null> 
     organizationName: row.organization.name,
     organizationSlug: row.organization.slug,
     organizationRole: row.member.role as SessionUser["organizationRole"],
+    platformRole: row.user.platformRole as SessionUser["platformRole"],
   };
 }
 
@@ -145,7 +147,7 @@ export async function registerUser(req: Request, res: Response, name: string, em
     email: normalizedEmail,
     passwordHash: hashPassword(password),
     loginMethod: "password",
-    role: "admin",
+    role: "user",
     status: "active",
   });
   const userId = Number(userResult[0].insertId);

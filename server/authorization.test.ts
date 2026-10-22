@@ -12,6 +12,7 @@ function viewerContext(): TrpcContext {
       loginMethod: "password",
       passwordHash: null,
       role: "user",
+      platformRole: "none",
       status: "active",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -57,5 +58,9 @@ describe("governance authorization", () => {
   it("allows approval only to owner and admin procedures", async () => {
     await expect(appRouter.createCaller(roleContext("operator")).imports.commit({ id: "batch-1", confirm: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(appRouter.createCaller(roleContext("viewer")).imports.cancel({ id: "batch-1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("blocks tenant roles from the global SaaS administration", async () => {
+    await expect(appRouter.createCaller(roleContext("admin")).saasAdmin.summary()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

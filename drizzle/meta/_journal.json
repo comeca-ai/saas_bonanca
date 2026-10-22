@@ -50,6 +50,13 @@
       "when": 1792692111580,
       "tag": "0006_loud_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1792703858742,
+      "tag": "0007_parched_veda",
+      "breakpoints": true
     }
   ]
 }

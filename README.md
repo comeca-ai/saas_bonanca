@@ -42,6 +42,26 @@ grep '^SEED_ADMIN_PASSWORD=' .env
 
 Nunca envie o arquivo `.env` ao GitHub nem o compartilhe por mensagem.
 
+## Administração SaaS multitenant
+
+O Bonança separa a administração da **plataforma** da administração de cada organização. O papel `owner` ou `admin` de um tenant não concede acesso global automaticamente.
+
+Para habilitar o primeiro administrador global em uma instalação self-hosted, defina explicitamente no `.env` o e-mail do usuário que deve receber `super_admin`:
+
+```dotenv
+PLATFORM_ADMIN_EMAIL=seu-admin-da-plataforma@empresa.com
+```
+
+Depois, reinicie o app para que o seed idempotente faça o bootstrap da permissão sem apagar ou recriar dados:
+
+```bash
+docker compose up -d --build
+```
+
+O console fica em `/saas-admin` e só aparece para papéis globais explícitos. Os papéis disponíveis são `super_admin`, `support`, `billing`, `security` e `readonly`. Suspender um tenant revoga suas sessões ativas, preserva os dados e exige motivo; mudanças ficam registradas em uma auditoria global separada da auditoria operacional.
+
+Boas práticas: use uma conta nominal para cada administrador da plataforma, limite `billing` a alterações comerciais, limite `support`/`security` ao ciclo de vida do tenant, mantenha `PLATFORM_ADMIN_EMAIL` fora do código e revise a trilha de plataforma periodicamente.
+
 ## Produção com domínio e HTTPS
 
 Antes de colocar em produção, edite `.env`:

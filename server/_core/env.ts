@@ -18,6 +18,7 @@ export const ENV = {
   get isSelfHosted() { return process.env.BONANCA_SELF_HOSTED === "true"; },
   get seedAdminEmail() { return process.env.SEED_ADMIN_EMAIL ?? "admin@bonanca.local"; },
   get seedAdminPassword() { return process.env.SEED_ADMIN_PASSWORD ?? ""; },
+  get platformAdminEmail() { return process.env.PLATFORM_ADMIN_EMAIL?.trim().toLowerCase() ?? ""; },
   // Self-hosted sempre usa SESSION_SECRET. O SaaS de container único recebe
   // uma chave aleatória em memória para permanecer disponível sem secret injetado.
   get sessionSecret() {

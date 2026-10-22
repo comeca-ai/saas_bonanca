@@ -21,6 +21,7 @@ function Router() {
     <Route path="/audit" component={Home} />
     <Route path="/settings" component={Home} />
     <Route path="/growth-calculator" component={Home} />
+    <Route path="/saas-admin" component={Home} />
     <Route path="/404" component={NotFound} />
     <Route component={NotFound} />
   </Switch>;
