@@ -1,28 +1,18 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
+import { getSessionUser, type SessionUser } from "../auth";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
-  user: User | null;
+  user: SessionUser | null;
 };
 
-export async function createContext(
-  opts: CreateExpressContextOptions
-): Promise<TrpcContext> {
-  let user: User | null = null;
-
+export async function createContext(opts: CreateExpressContextOptions): Promise<TrpcContext> {
+  let user: SessionUser | null = null;
   try {
-    user = await sdk.authenticateRequest(opts.req);
+    user = await getSessionUser(opts.req);
   } catch (error) {
-    // Authentication is optional for public procedures.
-    user = null;
+    console.warn("[Auth] Failed to resolve Bonança session", error);
   }
-
-  return {
-    req: opts.req,
-    res: opts.res,
-    user,
-  };
+  return { req: opts.req, res: opts.res, user };
 }

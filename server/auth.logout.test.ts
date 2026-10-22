@@ -20,9 +20,15 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
     name: "Sample User",
     loginMethod: "manus",
     role: "user",
+    passwordHash: null,
+    status: "active",
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSignedIn: new Date(),
+    organizationId: "org-test",
+    organizationName: "Bonança Teste",
+    organizationSlug: "bonanca-teste",
+    organizationRole: "viewer",
   };
 
   const ctx: TrpcContext = {
