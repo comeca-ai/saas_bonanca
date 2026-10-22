@@ -45,6 +45,7 @@
 - [x] O módulo de Balança Misturadora opera como serviço interno, com máquinas, ingredientes, receitas versionadas, currais, estoque, batidas idempotentes, sobras, ordenha e indicadores segregados por organização.
 - [x] O app Bonança funciona como gateway autenticado: deriva organização e usuário da sessão, aplica os papéis antes dos comandos, usa tokens internos distintos e replica operações aprovadas para a auditoria central.
 - [x] A tela “Pesagem e alimentação” mostra saúde dos dois serviços e permite registrar animais, sessões e pesos; ingredientes, máquinas, currais, estoque, receitas, batidas e pesos reais sem expor endpoints internos ao navegador.
+- [x] Uma publicação SaaS de container único não bloqueia o núcleo quando os serviços acompanhantes não existem: a tela os apresenta como indisponíveis; o Docker Compose é o modo completo e exige tokens internos para ativá-los.
 - [ ] A integração com dispositivos físicos de pesagem, incluindo serial, Bluetooth, TCP, nuvem, firmware, estabilidade e ACK, só será ativada após homologação do fabricante e testes em equipamento real; o sistema não simula telemetria como leitura física.
 
 ## Importação e reconciliação de bases

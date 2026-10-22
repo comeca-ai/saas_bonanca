@@ -2,19 +2,9 @@
 set -eu
 
 : "${DATABASE_URL:?DATABASE_URL não configurada}"
-: "${PESAGEM_SERVICE_TOKEN:?PESAGEM_SERVICE_TOKEN não configurado}"
-: "${BALANCA_SERVICE_TOKEN:?BALANCA_SERVICE_TOKEN não configurado}"
-
-case "$PESAGEM_SERVICE_TOKEN" in
-  troque-por-*|CHANGE_ME*|change-me*) echo "PESAGEM_SERVICE_TOKEN ainda usa placeholder." >&2; exit 1 ;;
-esac
-case "$BALANCA_SERVICE_TOKEN" in
-  troque-por-*|CHANGE_ME*|change-me*) echo "BALANCA_SERVICE_TOKEN ainda usa placeholder." >&2; exit 1 ;;
-esac
-if [ "${#PESAGEM_SERVICE_TOKEN}" -lt 24 ] || [ "${#BALANCA_SERVICE_TOKEN}" -lt 24 ]; then
-  echo "Tokens internos dos microserviços devem ter pelo menos 24 caracteres." >&2
-  exit 1
-fi
+# Em SaaS gerenciado, somente este container é publicado e os módulos externos ficam
+# conscientemente offline. No Docker Compose self-hosted, a interpolação obrigatória
+# do compose exige os dois tokens antes de iniciar app e microserviços.
 
 printf '%s\n' "[bonanca] aguardando MySQL..."
 until node --input-type=module - <<'NODE'
