@@ -11,7 +11,12 @@ export const ENV = {
   get forgeApiKey() { return process.env.MANUS_API_KEY ?? ""; },
   get seedAdminEmail() { return process.env.SEED_ADMIN_EMAIL ?? "admin@bonanca.local"; },
   get seedAdminPassword() { return process.env.SEED_ADMIN_PASSWORD ?? ""; },
-  get sessionSecret() { return process.env.SESSION_SECRET ?? ""; },
+  // Self-hosted sempre usa SESSION_SECRET. No container único gerenciado, a
+  // chave de runtime é um fallback de última instância caso a injeção do
+  // segredo da aplicação ainda não esteja disponível.
+  get sessionSecret() {
+    return process.env.BONANCA_SESSION_SECRET || process.env.SESSION_SECRET || (process.env.MANUS_PROJECT_ID ? process.env.MANUS_JWT_SECRET || "" : "");
+  },
   get appOrigin() { return process.env.APP_ORIGIN?.replace(/\/$/, "") ?? ""; },
   get pesagemServiceUrl() { return process.env.PESAGEM_SERVICE_URL?.replace(/\/$/, "") ?? (process.env.NODE_ENV === "production" ? "http://pesagem:8080" : "http://127.0.0.1:8081"); },
   get pesagemServiceToken() { return process.env.PESAGEM_SERVICE_TOKEN ?? ""; },
@@ -21,9 +26,9 @@ export const ENV = {
 
 export function assertProductionSecrets() {
   if (!ENV.isProduction) return;
-  const required = ["SESSION_SECRET", "SEED_ADMIN_PASSWORD"] as const;
-  for (const key of required) {
-    const value = process.env[key]?.trim() ?? "";
+  const required = [{ key: "SESSION_SECRET", value: ENV.sessionSecret }, { key: "SEED_ADMIN_PASSWORD", value: ENV.seedAdminPassword }];
+  for (const { key, value: rawValue } of required) {
+    const value = rawValue.trim();
     if (!value || value.startsWith("troque-por-") || value.length < 24) {
       throw new Error(`${key} deve estar definido com um segredo forte antes de iniciar em produção`);
     }
