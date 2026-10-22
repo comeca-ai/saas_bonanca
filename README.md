@@ -105,7 +105,7 @@ Na própria tela há o botão **Modelo Excel** para baixar [`Template_Dados_Bona
 
 O fluxo é deliberadamente em quatro etapas: **receber → mapear → validar → aprovar**. O arquivo original fica preservado no lote com hash SHA-256, nome, tamanho, usuário, cabeçalhos e mapeamento. Cada linha mantém o conteúdo original, linha de origem, dados normalizados, status e mensagens de erro. Datas brasileiras, números com vírgula decimal e aliases comuns do agronegócio são normalizados sem alterar o valor original.
 
-Linhas com unidade, lote ou insumo inexistente, campos obrigatórios ausentes, duplicidades ou referências conflitantes ficam inválidas ou duplicadas. Somente um administrador pode aprovar as linhas válidas; a gravação ocorre em transação e entra com `originType=consolidated`, método `import` e status `to_confirm`. Vínculos entre movimentações e lotes entram como candidatos, nunca como confirmados automaticamente. Um mesmo arquivo não pode ser recebido duas vezes na mesma organização.
+Linhas com unidade, lote ou insumo inexistente, campos obrigatórios ausentes, duplicidades ou referências conflitantes ficam inválidas ou duplicadas. Somente `owner` ou `admin` podem aprovar as linhas válidas; a gravação ocorre em transação e entra com `originType=consolidated`, método `import` e status `to_confirm`. Vínculos entre movimentações e lotes entram como candidatos, nunca como confirmados automaticamente. Um mesmo arquivo não pode ser recebido duas vezes na mesma organização.
 
 ## Backup e restauração
 
@@ -159,11 +159,25 @@ pnpm dev
 Checagens de engenharia:
 
 ```bash
-pnpm check
-pnpm test
+# Tipagem, testes unitários, microserviços e build
+pnpm test:all
+
+# Somente a estrutura e os mapeamentos do template Excel
+pnpm test:template
+
+# Testes dos serviços Pesagem e Balança Misturadora
 pnpm test:modules
+
+# Smoke test autenticado contra o ambiente em execução
+pnpm smoke
+
+# Comandos individuais equivalentes
+pnpm check
+pnpm test:unit
 pnpm build
 ```
+
+A suíte fica organizada em quatro camadas: testes unitários do núcleo (`server/*.test.ts`), teste estrutural do template (`server/template.test.ts`), testes de integração dos microserviços (`services/*/test*`) e smoke test HTTP (`scripts/smoke-test.mjs`). O smoke test também baixa o template publicado e confirma as dez abas oficiais antes de testar login, importação, governança e logout.
 
 ## Escopo atual
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import * as XLSX from "xlsx";
+
 const baseUrl = (process.env.SMOKE_BASE_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
 const email = process.env.SMOKE_EMAIL || process.env.SEED_ADMIN_EMAIL || "";
 const password = process.env.SMOKE_PASSWORD || process.env.SEED_ADMIN_PASSWORD || "";
@@ -61,6 +63,14 @@ try {
   const { body: routesBody } = await parseResponse(routesResponse, "Manifesto de rotas");
   const expectedRoutes = ["/", "/livestock", "/operations", "/imports", "/core", "/data-control", "/catalog", "/audit", "/settings", "/growth-calculator"];
   ok("Manifesto declara as páginas principais", expectedRoutes.every(route => routesBody.routes?.some(item => item.path === route)));
+
+  const templateResponse = await fetch(`${baseUrl}/templates/Template_Dados_Bonanca.xlsx`);
+  const templateBuffer = Buffer.from(await templateResponse.arrayBuffer());
+  const templateWorkbook = templateResponse.ok ? XLSX.read(templateBuffer, { type: "buffer", cellDates: false }) : null;
+  const expectedSheets = ["Comece aqui", "Dicionario", "Unidades", "Lotes", "Movimentos", "Pesagens", "Consumo", "Financeiro", "Metas", "Acoes"];
+  const templateContentType = templateResponse.headers.get("content-type") ?? "";
+  ok("Template Excel está disponível para o cliente", templateResponse.ok && templateBuffer.length > 10_000 && (!templateContentType || templateContentType.includes("spreadsheetml.sheet") || templateContentType.includes("octet-stream")));
+  ok("Template Excel preserva as dez abas oficiais", Boolean(templateWorkbook && JSON.stringify(templateWorkbook.SheetNames) === JSON.stringify(expectedSheets)));
 
   const unauthenticated = await fetch(`${baseUrl}/api/trpc/dashboard.summary?input=${encodeURIComponent(JSON.stringify({ json: null }))}`);
   await parseResponse(unauthenticated, "Bloqueio sem sessão");
