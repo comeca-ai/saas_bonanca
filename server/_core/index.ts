@@ -11,12 +11,12 @@ import { checkDatabaseHealth } from "../db";
 import { assertProductionSecrets, ENV } from "./env";
 
 function isTrustedMutationOrigin(req: express.Request) {
+  // Cloud Preview uses a public HTTPS origin while the app receives an internal Host.
+  // Production remains protected by the explicit APP_ORIGIN allowlist below.
+  if (!ENV.isProduction) return true;
   const origin = req.get("origin");
   if (!origin) return true;
-  const forwardedHost = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").split(",")[0].trim();
-  const forwardedProto = String(req.get("x-forwarded-proto") ?? req.protocol ?? "http").split(",")[0].trim();
-  const forwardedOrigin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : "";
-  return origin === ENV.appOrigin || origin === forwardedOrigin;
+  return Boolean(ENV.appOrigin && origin === ENV.appOrigin);
 }
 
 async function startServer() {
