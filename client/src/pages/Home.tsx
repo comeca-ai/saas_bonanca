@@ -74,6 +74,7 @@ function EmptyState({ icon: Icon, title, description }: { icon: typeof Database;
 function Shell({ children, currentPath }: { children: React.ReactNode; currentPath: string }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const me = trpc.auth.me.useQuery();
+  const summary = trpc.dashboard.summary.useQuery(undefined, { enabled: Boolean(me.data), staleTime: 15_000 });
   const logout = trpc.auth.logout.useMutation({ onSuccess: () => window.location.reload() });
   const meta = viewMeta[currentPath] ?? viewMeta["/"];
   const user = me.data;
@@ -86,7 +87,7 @@ function Shell({ children, currentPath }: { children: React.ReactNode; currentPa
       </div>
       <nav className="main-nav">
         <span className="nav-label">Operação</span>
-        {navItems.slice(0, 4).map((item: any) => <Link key={item.path} href={item.path} className={`nav-item ${currentPath === item.path ? "active" : ""}`} onClick={() => setMobileOpen(false)}><item.icon size={17} /><span>{item.label}</span>{item.path === "/data-control" && <span className="nav-count">7</span>}</Link>)}
+        {navItems.slice(0, 4).map((item: any) => <Link key={item.path} href={item.path} className={`nav-item ${currentPath === item.path ? "active" : ""}`} onClick={() => setMobileOpen(false)}><item.icon size={17} /><span>{item.label}</span>{item.path === "/data-control" && summary.data && <span className="nav-count">{summary.data.toConfirm + summary.data.openDiscrepancies + summary.data.candidateLinks}</span>}</Link>)}
         <span className="nav-label nav-label-space">Conhecimento</span>
         {navItems.slice(4).map((item: any) => <Link key={item.path} href={item.path} className={`nav-item ${currentPath === item.path ? "active" : ""}`} onClick={() => setMobileOpen(false)}><item.icon size={17} /><span>{item.label}</span></Link>)}
         <span className="nav-label nav-label-space">Planejamento</span>

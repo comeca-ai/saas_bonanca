@@ -77,7 +77,19 @@ docker compose up -d --build
 
 # Healthcheck
 docker compose exec app node -e "fetch('http://127.0.0.1:3000/api/health').then(r => r.text()).then(console.log)"
+
+# Smoke test autenticado — usa as credenciais do .env sem exibi-las
+SMOKE_EMAIL="$(grep '^SEED_ADMIN_EMAIL=' .env | cut -d= -f2-)"
+SMOKE_PASSWORD="$(grep '^SEED_ADMIN_PASSWORD=' .env | cut -d= -f2-)"
+SMOKE_BASE_URL="http://127.0.0.1:${APP_PORT:-3000}"
+docker compose exec -T \
+  -e "SMOKE_EMAIL=${SMOKE_EMAIL}" \
+  -e "SMOKE_PASSWORD=${SMOKE_PASSWORD}" \
+  -e "SMOKE_BASE_URL=${SMOKE_BASE_URL}" \
+  app node scripts/smoke-test.mjs
 ```
+
+O smoke test verifica healthcheck, manifesto de rotas, bloqueio sem sessão, login, sessão, dashboard, núcleo comum, lista e ficha de lotes, insumos, controle de dados, catálogo, KPIs, qualidade, histórico, membros sem exposição de hashes e logout. Ele não cria lotes, insumos ou custos e pode ser executado após cada atualização.
 
 A atualização preserva o volume `bonanca_mysql_data`. As migrations são executadas de forma idempotente antes de cada inicialização da aplicação. Não remova volumes em produção sem backup confirmado.
 
