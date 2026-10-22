@@ -52,6 +52,7 @@ O modelo de domínio deve refletir o setor: lotes em diferentes regimes, ciclos 
 - **Camada semântica de KPIs:** definições únicas e versionadas de indicadores como custo por cabeça, custo por arroba produzida, margem por lote e giro de estoque. O MVP terá uma primeira coleção de indicadores de pecuária; cada indicador informa fórmula, unidade, fontes e limitações.
 - **Qualidade automatizada:** regras configuráveis de faixa, completude, atualidade de vínculo e consistência. A execução cria alertas sem corrigir ou apagar o dado original.
 - **Reconciliação de migração:** importações futuras entram com fonte, lote de migração, totais de controle e divergências; nenhuma planilha é “limpa” em silêncio.
+- **Módulo de importação:** a tela recebe CSV/XLS/XLSX/JSON, preserva arquivo e hash, sugere mapeamento por aliases do setor, valida linha a linha, separa duplicidades e exige aprovação antes de criar registros no domínio.
 - **Quatro camadas explícitas:** documentos/evidências, dados estruturados, telas de lançamento e relatórios/painéis são objetos e fluxos separados.
 
 A extensão de novos domínios ocorre sem transformar tudo em atributos genéricos: atividade já suportada é cadastro/configuração; variação controlada tem parâmetros versionados; novo domínio recebe tabelas, regras e interfaces próprias ligadas aos IDs do núcleo.
@@ -100,6 +101,7 @@ A extensão de novos domínios ocorre sem transformar tudo em atributos genéric
 - Biblioteca de KPIs semânticos com fórmula, unidade, fontes e sinal de confiabilidade.
 - Regras de qualidade com severidade, condição, resultado e alertas abertos.
 - Configuração de domínios, atividades e campos extensíveis versionados.
+- Importação controlada de lotes, eventos/pesagens, movimentações de insumo e lançamentos econômicos; cada lote mantém arquivo original, hash, cabeçalhos, mapeamento, linhas, erros, duplicidades e decisão de aprovação.
 
 ### Calculadora “Quanto custa crescer”
 

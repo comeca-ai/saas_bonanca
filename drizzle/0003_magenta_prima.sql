@@ -1,0 +1,4 @@
+ALTER TABLE `economic_entries` ADD CONSTRAINT `economic_entries_source_uq` UNIQUE(`organizationId`,`businessUnitId`,`entryDate`,`sourceReference`);--> statement-breakpoint
+ALTER TABLE `input_movements` ADD CONSTRAINT `input_movements_source_uq` UNIQUE(`organizationId`,`inputId`,`movementDate`,`movementType`,`sourceReference`);--> statement-breakpoint
+ALTER TABLE `livestock_lots` ADD CONSTRAINT `livestock_lots_organization_code_uq` UNIQUE(`organizationId`,`lotCode`);--> statement-breakpoint
+ALTER TABLE `lot_events` ADD CONSTRAINT `lot_events_operation_date_uq` UNIQUE(`organizationId`,`lotId`,`eventType`,`eventDate`);

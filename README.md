@@ -89,9 +89,17 @@ docker compose exec -T \
   app node scripts/smoke-test.mjs
 ```
 
-O smoke test verifica healthcheck, manifesto de rotas, bloqueio sem sessão, login, sessão, dashboard, núcleo comum, lista e ficha de lotes, insumos, controle de dados, catálogo, KPIs, qualidade, histórico, membros sem exposição de hashes e logout. Ele não cria lotes, insumos ou custos e pode ser executado após cada atualização.
+O smoke test verifica healthcheck, manifesto de rotas, bloqueio sem sessão, login, sessão, dashboard, núcleo comum, lista e ficha de lotes, insumos, recebimento/mapeamento/validação/cancelamento de uma importação, controle de dados, catálogo, KPIs, qualidade, histórico, membros sem exposição de hashes e logout. Ele não aprova linhas no domínio e pode ser executado após cada atualização.
 
 A atualização preserva o volume `bonanca_mysql_data`. As migrations são executadas de forma idempotente antes de cada inicialização da aplicação. Não remova volumes em produção sem backup confirmado.
+
+## Importação controlada de bases
+
+A tela **Importação** recebe arquivos CSV, XLS, XLSX ou JSON de até 5 MB e até 5.000 linhas. O operador escolhe o destino — lotes, eventos/pesagens, movimentações de insumo ou lançamentos econômicos — e pode informar uma unidade padrão quando a planilha não tiver esse campo.
+
+O fluxo é deliberadamente em quatro etapas: **receber → mapear → validar → aprovar**. O arquivo original fica preservado no lote com hash SHA-256, nome, tamanho, usuário, cabeçalhos e mapeamento. Cada linha mantém o conteúdo original, linha de origem, dados normalizados, status e mensagens de erro. Datas brasileiras, números com vírgula decimal e aliases comuns do agronegócio são normalizados sem alterar o valor original.
+
+Linhas com unidade, lote ou insumo inexistente, campos obrigatórios ausentes, duplicidades ou referências conflitantes ficam inválidas ou duplicadas. Somente um administrador pode aprovar as linhas válidas; a gravação ocorre em transação e entra com `originType=consolidated`, método `import` e status `to_confirm`. Vínculos entre movimentações e lotes entram como candidatos, nunca como confirmados automaticamente. Um mesmo arquivo não pode ser recebido duas vezes na mesma organização.
 
 ## Backup e restauração
 
@@ -135,4 +143,4 @@ pnpm build
 
 ## Escopo atual
 
-O MVP usa dados demonstrativos anonimizados. Não importa planilhas reais, não conecta ERP/SEFAZ/Open Finance, não armazena documentos binários e não fecha o modelo dos futuros módulos. Integrações, OCR, anexos, permissões mais granulares, multi-idioma e módulos imobiliário/patrimonial ficam preparados para fases posteriores com autorização e dados reais.
+O MVP usa dados demonstrativos anonimizados. A importação de bases é controlada e cobre os quatro destinos operacionais acima, mas ainda não conecta ERP/SEFAZ/Open Finance, não executa processamento assíncrono para arquivos grandes, não faz OCR, não armazena documentos binários e não fecha o modelo dos futuros módulos. Integrações, anexos, permissões mais granulares, multi-idioma e módulos imobiliário/patrimonial ficam preparados para fases posteriores com autorização e dados reais.

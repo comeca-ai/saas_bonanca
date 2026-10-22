@@ -1,4 +1,4 @@
-import { decimal, int, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { decimal, index, int, longtext, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 const id = (name = "id") => varchar(name, { length: 36 });
 const enumText = (name: string, _values?: readonly string[]) => varchar(name, { length: 40 });
@@ -245,12 +245,15 @@ export const livestockLots = mysqlTable("livestock_lots", {
   entryDate: varchar("entryDate", { length: 10 }),
   expectedExitDate: varchar("expectedExitDate", { length: 10 }),
   actualExitDate: varchar("actualExitDate", { length: 10 }),
+  sourceReference: varchar("sourceReference", { length: 240 }),
   status: enumText("status", ["planned", "active", "closed", "to_confirm"]).default("active").notNull(),
   dataStatus: enumText("dataStatus", ["verified", "partial", "to_confirm"]).default("partial").notNull(),
   notes: text("notes"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+}, (table) => ({
+  organizationCodeUnique: uniqueIndex("livestock_lots_organization_code_uq").on(table.organizationId, table.lotCode),
+}));
 
 export const lotEvents = mysqlTable("lot_events", {
   id: id().primaryKey(),
@@ -267,7 +270,9 @@ export const lotEvents = mysqlTable("lot_events", {
   notes: text("notes"),
   createdByUserId: int("createdByUserId"),
   createdAt: createdAt(),
-});
+}, (table) => ({
+  operationDateUnique: uniqueIndex("lot_events_operation_date_uq").on(table.organizationId, table.lotId, table.eventType, table.eventDate),
+}));
 
 export const inputs = mysqlTable("inputs", {
   id: id().primaryKey(),
@@ -297,7 +302,9 @@ export const inputMovements = mysqlTable("input_movements", {
   notes: text("notes"),
   createdByUserId: int("createdByUserId"),
   createdAt: createdAt(),
-});
+}, (table) => ({
+  sourceUnique: uniqueIndex("input_movements_source_uq").on(table.organizationId, table.inputId, table.movementDate, table.movementType, table.sourceReference),
+}));
 
 export const economicEntries = mysqlTable("economic_entries", {
   id: id().primaryKey(),
@@ -317,7 +324,55 @@ export const economicEntries = mysqlTable("economic_entries", {
   createdByUserId: int("createdByUserId"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
-});
+}, (table) => ({
+  sourceUnique: uniqueIndex("economic_entries_source_uq").on(table.organizationId, table.businessUnitId, table.entryDate, table.sourceReference),
+}));
+
+export const importBatches = mysqlTable("import_batches", {
+  id: id().primaryKey(),
+  organizationId: varchar("organizationId", { length: 36 }).notNull(),
+  businessUnitId: varchar("businessUnitId", { length: 36 }),
+  sourceFilename: varchar("sourceFilename", { length: 240 }).notNull(),
+  sourceMimeType: varchar("sourceMimeType", { length: 120 }),
+  sourceFormat: enumText("sourceFormat", ["csv", "xls", "xlsx", "json"]).notNull(),
+  sourceHash: varchar("sourceHash", { length: 64 }).notNull(),
+  sourceSize: int("sourceSize").notNull(),
+  sourceContent: longtext("sourceContent").notNull(),
+  targetEntity: enumText("targetEntity", ["livestock_lot", "lot_event", "input_movement", "economic_entry"]).notNull(),
+  headers: longtext("headers").notNull(),
+  mapping: longtext("mapping").notNull(),
+  processingToken: varchar("processingToken", { length: 36 }),
+  processingStartedAt: timestamp("processingStartedAt"),
+  status: enumText("status", ["uploaded", "mapped", "validated", "processing", "completed", "partial", "failed", "cancelled"]).default("uploaded").notNull(),
+  totalRows: int("totalRows").default(0).notNull(),
+  validRows: int("validRows").default(0).notNull(),
+  invalidRows: int("invalidRows").default(0).notNull(),
+  duplicateRows: int("duplicateRows").default(0).notNull(),
+  errorSummary: longtext("errorSummary"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => ({
+  organizationHashUnique: uniqueIndex("import_batches_organization_hash_uq").on(table.organizationId, table.sourceHash),
+  organizationStatusIndex: index("import_batches_organization_status_idx").on(table.organizationId, table.status, table.createdAt),
+}));
+
+export const importRows = mysqlTable("import_rows", {
+  id: id().primaryKey(),
+  organizationId: varchar("organizationId", { length: 36 }).notNull(),
+  batchId: varchar("batchId", { length: 36 }).notNull(),
+  rowNumber: int("rowNumber").notNull(),
+  sourceData: longtext("sourceData").notNull(),
+  normalizedData: longtext("normalizedData"),
+  status: enumText("status", ["pending", "valid", "invalid", "duplicate", "imported", "skipped"]).default("pending").notNull(),
+  errors: longtext("errors"),
+  targetId: varchar("targetId", { length: 36 }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (table) => ({
+  batchRowUnique: uniqueIndex("import_rows_batch_row_uq").on(table.batchId, table.rowNumber),
+  batchStatusIndex: index("import_rows_batch_status_idx").on(table.organizationId, table.batchId, table.status, table.rowNumber),
+}));
 
 export const fieldConfigs = mysqlTable("field_configs", {
   id: id().primaryKey(),

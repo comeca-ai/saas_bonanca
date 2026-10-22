@@ -1,0 +1,1 @@
+ALTER TABLE `livestock_lots` ADD `sourceReference` varchar(240);

@@ -44,7 +44,7 @@ async function query(path, input = null, label = path) {
 async function mutation(path, input, label = path, headers = {}) {
   const response = await fetch(`${baseUrl}/api/trpc/${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: baseUrl, ...headers },
+    headers: { "content-type": "application/json", origin: baseUrl, ...(cookie ? { cookie } : {}), ...headers },
     body: JSON.stringify({ json: input }),
   });
   const { body } = await parseResponse(response, label);
@@ -59,7 +59,7 @@ try {
 
   const routesResponse = await fetch(`${baseUrl}/manus-routes.json`);
   const { body: routesBody } = await parseResponse(routesResponse, "Manifesto de rotas");
-  const expectedRoutes = ["/", "/livestock", "/core", "/data-control", "/catalog", "/audit", "/settings", "/growth-calculator"];
+  const expectedRoutes = ["/", "/livestock", "/imports", "/core", "/data-control", "/catalog", "/audit", "/settings", "/growth-calculator"];
   ok("Manifesto declara as páginas principais", expectedRoutes.every(route => routesBody.routes?.some(item => item.path === route)));
 
   const unauthenticated = await fetch(`${baseUrl}/api/trpc/dashboard.summary?input=${encodeURIComponent(JSON.stringify({ json: null }))}`);
@@ -88,6 +88,17 @@ try {
     ok("Ficha do lote retorna cadeia operacional", Boolean(detail?.lot && Array.isArray(detail.events) && Array.isArray(detail.movements)));
   }
   await query("livestock.inputs", null, "Pecuária · insumos");
+  const units = await query("core.units", null, "Importação · unidades");
+  ok("Importação encontra unidade para teste", Array.isArray(units) && units.length > 0);
+  const csv = `lotCode,businessUnitCode,regime,headCount,entryDate\nSMOKE-${Date.now()},${units[0].code},confinado,1,22/10/2026\n`;
+  const uploaded = await mutation("imports.upload", { filename: "smoke-import.csv", mimeType: "text/csv", contentBase64: `data:text/csv;base64,${Buffer.from(csv).toString("base64")}`, targetEntity: "livestock_lot" }, "Importação · upload");
+  const importBatch = uploaded.body.result?.data?.json;
+  ok("Importação recebe o arquivo e conta as linhas", importBatch?.totalRows === 1);
+  const importDetail = await query("imports.detail", { id: importBatch.id }, "Importação · detalhe");
+  await mutation("imports.map", { id: importBatch.id, mapping: importDetail.mapping }, "Importação · mapeamento");
+  const validation = await mutation("imports.validate", { id: importBatch.id }, "Importação · validação");
+  ok("Importação valida uma linha de lote", validation.body.result?.data?.json?.validRows === 1);
+  await mutation("imports.cancel", { id: importBatch.id }, "Importação · cancelamento");
   await query("dataControl.overview", null, "Controle de dados");
   await query("catalog.fields", null, "Catálogo · campos");
   await query("catalog.kpis", null, "Catálogo · KPIs");

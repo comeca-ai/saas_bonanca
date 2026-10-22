@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNotNull, like, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, like, or, sum } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -15,6 +15,8 @@ import {
   fieldConfigs,
   inputMovements,
   inputs,
+  importBatches,
+  importRows,
   kpiDefinitions,
   livestockLots,
   lotEvents,
@@ -32,6 +34,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { UNAUTHED_ERR_MSG } from "@shared/const";
 import { clearFailedLogins, isLoginRateLimited, loginRateKey, registerFailedLogin } from "./security";
+import { autoMapping, decodeImportContent, hashImport, importTargets, normalizeRow, parseTabularFile, resolveAndValidateRow, rowDedupeKey, targetFields, type ImportTarget } from "./imports";
 
 async function requireDb() {
   const db = await getDb();
@@ -73,6 +76,31 @@ const lotStatuses = ["planned", "active", "closed", "to_confirm"] as const;
 const eventTypes = ["entry", "weighing", "handling", "transfer", "exit", "note"] as const;
 const dataStatuses = ["realized", "estimated", "simulated", "to_confirm"] as const;
 const qualityLevels = ["high", "medium", "low", "unknown"] as const;
+const importTargetEnum = z.enum(importTargets);
+
+function importRoleAllowed(role: string) {
+  return ["owner", "admin", "operator"].includes(role);
+}
+
+function parseImportJson(value: string | null | undefined) {
+  if (!value) return {};
+  try { return JSON.parse(value); } catch { return {}; }
+}
+
+function affectedRowsOf(result: any) {
+  return Number(result?.affectedRows ?? result?.[0]?.affectedRows ?? 0);
+}
+
+async function getImportBatch(db: any, organizationId: string, id: string) {
+  const rows = await db.select().from(importBatches).where(and(eq(importBatches.id, id), eq(importBatches.organizationId, organizationId))).limit(1);
+  if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Lote de importação não encontrado" });
+  const staleProcessing = rows[0].status === "processing" && rows[0].updatedAt && Date.now() - new Date(rows[0].updatedAt).getTime() > 10 * 60 * 1000;
+  if (staleProcessing) {
+    const recovery = await db.update(importBatches).set({ status: "mapped", processingToken: null, processingStartedAt: null, updatedAt: new Date() }).where(and(eq(importBatches.id, id), eq(importBatches.organizationId, organizationId), eq(importBatches.status, "processing"), eq(importBatches.updatedAt, rows[0].updatedAt)));
+    if (affectedRowsOf(recovery) === 1) rows[0].status = "mapped";
+  }
+  return rows[0];
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -283,6 +311,188 @@ export const appRouter = router({
         await audit(db, { organizationId: ctx.user.organizationId, entityType: "economic_entry", entityId: id, action: "created", actorUserId: ctx.user.id, newValue: input });
         return { id };
       }),
+  }),
+
+  imports: router({
+    schema: protectedProcedure.query(() => ({ targets: importTargets.map(target => ({ target, fields: targetFields[target] })) })),
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const db = await requireDb();
+      return db.select({ id: importBatches.id, sourceFilename: importBatches.sourceFilename, sourceFormat: importBatches.sourceFormat, targetEntity: importBatches.targetEntity, status: importBatches.status, totalRows: importBatches.totalRows, validRows: importBatches.validRows, invalidRows: importBatches.invalidRows, duplicateRows: importBatches.duplicateRows, createdAt: importBatches.createdAt, updatedAt: importBatches.updatedAt }).from(importBatches).where(eq(importBatches.organizationId, ctx.user.organizationId)).orderBy(desc(importBatches.createdAt)).limit(50);
+    }),
+    upload: protectedProcedure
+      .input(z.object({ filename: z.string().min(1).max(240), mimeType: z.string().max(120).optional(), contentBase64: z.string().min(16).max(7_500_000), targetEntity: importTargetEnum, businessUnitId: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!importRoleAllowed(ctx.user.organizationRole)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para importar dados" });
+        const db = await requireDb();
+        let buffer: Buffer;
+        try { buffer = decodeImportContent(input.contentBase64); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Arquivo inválido" }); }
+        let parsed: ReturnType<typeof parseTabularFile>;
+        try { parsed = parseTabularFile(input.filename, buffer); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Não foi possível ler o arquivo" }); }
+        if (input.businessUnitId) {
+          const unit = await db.select({ id: businessUnits.id }).from(businessUnits).where(and(eq(businessUnits.id, input.businessUnitId), eq(businessUnits.organizationId, ctx.user.organizationId))).limit(1);
+          if (!unit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Unidade padrão não encontrada" });
+        }
+        const sourceHash = hashImport(buffer);
+        const already = await db.select({ id: importBatches.id }).from(importBatches).where(and(eq(importBatches.organizationId, ctx.user.organizationId), eq(importBatches.sourceHash, sourceHash))).limit(1);
+        if (already[0]) throw new TRPCError({ code: "CONFLICT", message: "Este arquivo já foi recebido nesta organização" });
+        const id = randomUUID();
+        const mapping = autoMapping(input.targetEntity, parsed.headers);
+        try {
+          await db.transaction(async (tx: any) => {
+            await tx.insert(importBatches).values({ id, organizationId: ctx.user.organizationId, businessUnitId: input.businessUnitId ?? null, sourceFilename: input.filename, sourceMimeType: input.mimeType ?? null, sourceFormat: parsed.format, sourceHash, sourceSize: buffer.length, sourceContent: buffer.toString("base64"), targetEntity: input.targetEntity, headers: JSON.stringify(parsed.headers), mapping: JSON.stringify(mapping), status: "uploaded", totalRows: parsed.rows.length, validRows: 0, invalidRows: 0, duplicateRows: 0, createdByUserId: ctx.user.id });
+            await tx.insert(importRows).values(parsed.rows.map((row, index) => ({ id: randomUUID(), organizationId: ctx.user.organizationId, batchId: id, rowNumber: parsed.rowNumbers[index] ?? index + 2, sourceData: JSON.stringify(row), status: "pending" })));
+            await tx.insert(auditEvents).values({ id: randomUUID(), organizationId: ctx.user.organizationId, entityType: "import_batch", entityId: id, action: "uploaded", actorUserId: ctx.user.id, newValue: JSON.stringify({ filename: input.filename, targetEntity: input.targetEntity, rows: parsed.rows.length, sourceHash }) });
+          });
+        } catch (error) {
+          if (String(error).toLowerCase().includes("duplicate")) throw new TRPCError({ code: "CONFLICT", message: "Este arquivo já foi recebido nesta organização" });
+          throw error;
+        }
+        return { id, filename: input.filename, format: parsed.format, headers: parsed.headers, mapping, totalRows: parsed.rows.length, sampleRows: parsed.rows.slice(0, 10) };
+      }),
+    detail: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const batch = await getImportBatch(db, ctx.user.organizationId, input.id);
+      const rows = await db.select({ id: importRows.id, rowNumber: importRows.rowNumber, sourceData: importRows.sourceData, normalizedData: importRows.normalizedData, status: importRows.status, errors: importRows.errors, targetId: importRows.targetId }).from(importRows).where(and(eq(importRows.batchId, input.id), eq(importRows.organizationId, ctx.user.organizationId))).orderBy(asc(importRows.rowNumber)).limit(120);
+      const pendingValid = await db.select({ value: count() }).from(importRows).where(and(eq(importRows.batchId, input.id), eq(importRows.organizationId, ctx.user.organizationId), eq(importRows.status, "valid")));
+      return { ...batch, pendingValidRows: Number(pendingValid[0]?.value ?? 0), headers: parseImportJson(batch.headers), mapping: parseImportJson(batch.mapping), rows: rows.map((row: any) => ({ ...row, sourceData: parseImportJson(row.sourceData), normalizedData: parseImportJson(row.normalizedData), errors: parseImportJson(row.errors) })) };
+    }),
+    map: protectedProcedure
+      .input(z.object({ id: z.string(), mapping: z.record(z.string(), z.string()) }))
+      .mutation(async ({ ctx, input }) => {
+        if (!importRoleAllowed(ctx.user.organizationRole)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para mapear dados" });
+        const db = await requireDb();
+        const batch = await getImportBatch(db, ctx.user.organizationId, input.id);
+        if (["completed", "cancelled", "processing"].includes(batch.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "Este lote não aceita novo mapeamento" });
+        const headers = parseImportJson(batch.headers) as string[];
+        const allowed = new Set(targetFields[batch.targetEntity as ImportTarget].map(field => field.key));
+        const mapping = Object.fromEntries(Object.entries(input.mapping).filter(([key, value]) => allowed.has(key) && headers.includes(value)));
+        await db.transaction(async (tx: any) => {
+          const transition = await tx.update(importBatches).set({ mapping: JSON.stringify(mapping), status: "mapped", updatedAt: new Date() }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), or(eq(importBatches.status, "uploaded"), eq(importBatches.status, "mapped"), eq(importBatches.status, "validated"), eq(importBatches.status, "partial"))));
+          if (affectedRowsOf(transition) !== 1) throw new TRPCError({ code: "CONFLICT", message: "O lote mudou enquanto o mapeamento era salvo" });
+          await tx.insert(auditEvents).values({ id: randomUUID(), organizationId: ctx.user.organizationId, entityType: "import_batch", entityId: input.id, action: "mapped", actorUserId: ctx.user.id, newValue: JSON.stringify(mapping) });
+        });
+        return { success: true, mapping };
+      }),
+    validate: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        if (!importRoleAllowed(ctx.user.organizationRole)) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para validar dados" });
+        const db = await requireDb();
+        const batch = await getImportBatch(db, ctx.user.organizationId, input.id);
+        if (["completed", "cancelled", "processing"].includes(batch.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "Este lote não aceita nova validação" });
+        const previousStatus = batch.status;
+        const processingToken = randomUUID();
+        const processingStartedAt = new Date();
+        const transition = await db.update(importBatches).set({ status: "processing", processingToken, processingStartedAt, updatedAt: processingStartedAt }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), or(eq(importBatches.status, "uploaded"), eq(importBatches.status, "mapped"), eq(importBatches.status, "validated"), eq(importBatches.status, "partial"))));
+        if (affectedRowsOf(transition) !== 1) throw new TRPCError({ code: "CONFLICT", message: "O lote mudou enquanto a validação era iniciada" });
+        try {
+        const currentBatch = await getImportBatch(db, ctx.user.organizationId, input.id);
+        const mapping = parseImportJson(currentBatch.mapping) as Record<string, string>;
+        const rows = await db.select().from(importRows).where(and(eq(importRows.batchId, input.id), eq(importRows.organizationId, ctx.user.organizationId))).orderBy(asc(importRows.rowNumber));
+        const seen = new Set<string>();
+        let validRows = 0;
+        let invalidRows = 0;
+        let duplicateRows = 0;
+        let importedRows = 0;
+        const updates: Array<{ id: string; status: "valid" | "invalid" | "duplicate"; normalizedData: string | null; errors: string | null }> = [];
+        for (const row of rows) {
+          if (row.status === "imported") { importedRows += 1; continue; }
+          const source = parseImportJson(row.sourceData) as Record<string, string>;
+          let normalized: Record<string, any> = {};
+          let errors: string[] = [];
+          try {
+            normalized = normalizeRow(batch.targetEntity as ImportTarget, source, mapping, { businessUnitId: batch.businessUnitId ?? undefined });
+            if (batch.targetEntity !== "livestock_lot" && !normalized.sourceReference) normalized.sourceReference = `import:${rowDedupeKey(batch.targetEntity as ImportTarget, normalized)}`;
+            const resolved = await resolveAndValidateRow(db, ctx.user.organizationId, batch.targetEntity as ImportTarget, normalized, { businessUnitId: batch.businessUnitId ?? undefined });
+            normalized = resolved.normalized;
+            errors = resolved.errors;
+            const key = rowDedupeKey(batch.targetEntity as ImportTarget, normalized);
+            if (seen.has(key)) errors.push("Registro repetido dentro deste arquivo."); else if (!errors.length) seen.add(key);
+          } catch (error) {
+            errors.push(error instanceof Error ? error.message : "Linha inválida.");
+          }
+          const isDuplicate = errors.some(error => /repetid|já existe|mesma origem/i.test(error));
+          if (isDuplicate) duplicateRows += 1; else if (errors.length) invalidRows += 1; else validRows += 1;
+          const status = isDuplicate ? "duplicate" : errors.length ? "invalid" : "valid";
+          updates.push({ id: row.id, status, normalizedData: JSON.stringify(normalized), errors: errors.length ? JSON.stringify(errors) : null });
+        }
+        await db.transaction(async (tx: any) => {
+          for (const update of updates) await tx.update(importRows).set({ status: update.status, normalizedData: update.normalizedData, errors: update.errors, updatedAt: new Date() }).where(and(eq(importRows.id, update.id), eq(importRows.organizationId, ctx.user.organizationId), eq(importRows.batchId, input.id)));
+          const finalized = await tx.update(importBatches).set({ status: "validated", processingToken: null, processingStartedAt: null, validRows: importedRows + validRows, invalidRows, duplicateRows, errorSummary: invalidRows || duplicateRows ? JSON.stringify({ invalidRows, duplicateRows }) : null, updatedAt: new Date() }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), eq(importBatches.status, "processing"), eq(importBatches.processingToken, processingToken)));
+          if (affectedRowsOf(finalized) !== 1) throw new TRPCError({ code: "CONFLICT", message: "A validação perdeu o controle do lote; tente novamente" });
+          await tx.insert(auditEvents).values({ id: randomUUID(), organizationId: ctx.user.organizationId, entityType: "import_batch", entityId: input.id, action: "validated", actorUserId: ctx.user.id, newValue: JSON.stringify({ validRows, invalidRows, duplicateRows }) });
+        });
+        return { id: input.id, totalRows: rows.length, validRows, invalidRows, duplicateRows };
+        } catch (error) {
+          await db.update(importBatches).set({ status: previousStatus, processingToken: null, processingStartedAt: null, updatedAt: new Date() }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), eq(importBatches.status, "processing"), eq(importBatches.processingToken, processingToken)));
+          throw error;
+        }
+      }),
+
+    commit: adminProcedure
+      .input(z.object({ id: z.string(), confirm: z.literal(true) }))
+      .mutation(async ({ ctx, input }) => {
+        const db = await requireDb();
+        const batch = await getImportBatch(db, ctx.user.organizationId, input.id);
+        const previousCommitStatus = batch.status;
+        if (!["validated", "partial"].includes(batch.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "Valide o lote antes de aprovar a importação" });
+        const processingToken = randomUUID();
+        const processingStartedAt = new Date();
+        const claim = await db.update(importBatches).set({ status: "processing", processingToken, processingStartedAt, updatedAt: processingStartedAt }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), or(eq(importBatches.status, "validated"), eq(importBatches.status, "partial"))));
+        if (affectedRowsOf(claim) !== 1) throw new TRPCError({ code: "CONFLICT", message: "Este lote já está sendo processado ou foi alterado por outro usuário" });
+        const rows = await db.select().from(importRows).where(and(eq(importRows.batchId, input.id), eq(importRows.organizationId, ctx.user.organizationId), eq(importRows.status, "valid"))).orderBy(asc(importRows.rowNumber));
+        if (!rows.length) {
+          await db.update(importBatches).set({ status: previousCommitStatus, processingToken: null, processingStartedAt: null, updatedAt: new Date() }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), eq(importBatches.status, "processing"), eq(importBatches.processingToken, processingToken)));
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Não há linhas válidas para importar" });
+        }
+        const alreadyImported = await db.select({ id: importRows.id }).from(importRows).where(and(eq(importRows.batchId, input.id), eq(importRows.organizationId, ctx.user.organizationId), eq(importRows.status, "imported")));
+        const importedBefore = alreadyImported.length;
+        let imported = 0;
+        try {
+          await db.transaction(async (tx: any) => {
+          for (const row of rows) {
+            const value = parseImportJson(row.normalizedData) as Record<string, any>;
+            const effectiveSourceReference = value.sourceReference ?? batch.sourceFilename;
+            const id = randomUUID();
+            if (batch.targetEntity === "livestock_lot") {
+              await tx.insert(livestockLots).values({ id, organizationId: ctx.user.organizationId, businessUnitId: value.businessUnitId, lotCode: value.lotCode, regime: value.regime, headCount: value.headCount, entryDate: value.entryDate ?? null, expectedExitDate: value.expectedExitDate ?? null, sourceReference: effectiveSourceReference, status: "to_confirm", dataStatus: "to_confirm", notes: value.notes ?? null });
+            } else if (batch.targetEntity === "lot_event") {
+              await tx.insert(lotEvents).values({ id, organizationId: ctx.user.organizationId, lotId: value.lotId, eventType: value.eventType, eventDate: value.eventDate, quantity: value.quantity?.toString() ?? null, unit: value.unit ?? null, originType: "consolidated", sourceReference: effectiveSourceReference, status: "to_confirm", quality: value.quality ?? "unknown", notes: value.notes ?? null, createdByUserId: ctx.user.id });
+            } else if (batch.targetEntity === "input_movement") {
+              await tx.insert(inputMovements).values({ id, organizationId: ctx.user.organizationId, inputId: value.inputId, lotId: value.lotId ?? null, movementType: value.movementType, movementDate: value.movementDate, quantity: value.quantity.toString(), unitCost: value.unitCost?.toString() ?? null, linkStatus: value.lotId ? "candidate" : "unlinked", originType: "consolidated", sourceReference: effectiveSourceReference, status: "to_confirm", notes: value.notes ?? null, createdByUserId: ctx.user.id });
+              if (value.lotId) {
+                const inputItem = await tx.select().from(inputs).where(and(eq(inputs.id, value.inputId), eq(inputs.organizationId, ctx.user.organizationId))).limit(1);
+                await tx.insert(dataRecords).values({ id: randomUUID(), organizationId: ctx.user.organizationId, entityType: "input_movement", entityId: id, fieldKey: "consumption_link", label: `Vínculo de ${inputItem[0]?.name ?? "insumo"}`, value: value.lotId, unit: inputItem[0]?.unit ?? null, originType: "consolidated", sourceReference: effectiveSourceReference, acquisitionMethod: "import", status: "to_confirm", quality: "unknown", approvalStatus: "pending", notes: "Movimentação importada aguardando confirmação direta do vínculo ao lote.", createdByUserId: ctx.user.id });
+                await tx.insert(recordLinks).values({ id: randomUUID(), organizationId: ctx.user.organizationId, fromType: "input_movement", fromId: id, toType: "livestock_lot", toId: value.lotId, linkType: "consumption_of", status: "candidate", evidenceNote: "Vínculo importado; requer confirmação direta." });
+              }
+            } else {
+              await tx.insert(economicEntries).values({ id, organizationId: ctx.user.organizationId, businessUnitId: value.businessUnitId, lotId: value.lotId ?? null, inputMovementId: value.inputMovementId ?? null, entryType: value.entryType, entryDate: value.entryDate, amount: value.amount.toString(), currency: value.currency ?? "BRL", originType: "consolidated", sourceReference: effectiveSourceReference, status: "to_confirm", notes: value.notes ?? null, createdByUserId: ctx.user.id });
+            }
+            await tx.insert(dataRecords).values({ id: randomUUID(), organizationId: ctx.user.organizationId, entityType: batch.targetEntity, entityId: id, fieldKey: "import_batch", label: "Origem da importação", value: `${batch.id}:${row.rowNumber}`, originType: "consolidated", sourceReference: effectiveSourceReference, acquisitionMethod: "import", status: "to_confirm", quality: "unknown", approvalStatus: "pending", notes: `Linha ${row.rowNumber} do arquivo preservado no lote de importação.`, createdByUserId: ctx.user.id });
+            await tx.update(importRows).set({ status: "imported", targetId: id, updatedAt: new Date() }).where(and(eq(importRows.id, row.id), eq(importRows.organizationId, ctx.user.organizationId), eq(importRows.batchId, input.id), eq(importRows.status, "valid")));
+            imported += 1;
+          }
+          const finalized = await tx.update(importBatches).set({ status: importedBefore + imported === batch.totalRows ? "completed" : "partial", processingToken: null, processingStartedAt: null, updatedAt: new Date() }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), eq(importBatches.status, "processing"), eq(importBatches.processingToken, processingToken)));
+          if (affectedRowsOf(finalized) !== 1) throw new TRPCError({ code: "CONFLICT", message: "A aprovação perdeu o controle do lote; tente novamente" });
+            await tx.insert(auditEvents).values({ id: randomUUID(), organizationId: ctx.user.organizationId, entityType: "import_batch", entityId: input.id, action: "committed", actorUserId: ctx.user.id, newValue: JSON.stringify({ imported, targetEntity: batch.targetEntity, sourceFilename: batch.sourceFilename }) });
+          });
+        } catch (error) {
+          await db.update(importBatches).set({ status: previousCommitStatus, processingToken: null, processingStartedAt: null, updatedAt: new Date() }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), eq(importBatches.status, "processing"), eq(importBatches.processingToken, processingToken)));
+          throw error;
+        }
+        return { id: input.id, imported, skipped: batch.totalRows - importedBefore - imported };
+    }),
+    cancel: adminProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const batch = await getImportBatch(db, ctx.user.organizationId, input.id);
+      if (["completed", "cancelled", "processing"].includes(batch.status)) throw new TRPCError({ code: "BAD_REQUEST", message: "Este lote não pode mais ser cancelado" });
+      await db.transaction(async (tx: any) => {
+        const transition = await tx.update(importBatches).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(importBatches.id, input.id), eq(importBatches.organizationId, ctx.user.organizationId), eq(importBatches.status, batch.status)));
+        if (affectedRowsOf(transition) !== 1) throw new TRPCError({ code: "CONFLICT", message: "O lote mudou enquanto era cancelado" });
+        await tx.insert(auditEvents).values({ id: randomUUID(), organizationId: ctx.user.organizationId, entityType: "import_batch", entityId: input.id, action: "cancelled", actorUserId: ctx.user.id });
+      });
+      return { success: true };
+    }),
   }),
 
   dataControl: router({

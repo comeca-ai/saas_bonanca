@@ -24,14 +24,17 @@ import {
   SlidersHorizontal,
   Sparkles,
   Tractor,
+  UploadCloud,
   Users,
   X,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import ImportsView from "./Imports";
 
 const navItems = [
   { path: "/", label: "Visão geral", icon: BarChart3 },
   { path: "/livestock", label: "Pecuária", icon: Tractor },
+  { path: "/imports", label: "Importação", icon: UploadCloud },
   { path: "/core", label: "Núcleo comum", icon: Layers3 },
   { path: "/data-control", label: "Controle de dados", icon: ShieldCheck },
   { path: "/catalog", label: "Catálogo e KPIs", icon: BookOpen },
@@ -41,6 +44,7 @@ const navItems = [
 const viewMeta: Record<string, { eyebrow: string; title: string; description: string }> = {
   "/": { eyebrow: "Visão geral", title: "O que precisa da sua atenção", description: "A operação em uma camada simples, com evidência antes de qualquer conclusão." },
   "/livestock": { eyebrow: "Pecuária", title: "Lotes e ciclos operacionais", description: "Acompanhe o que está em campo sem perder a origem do número." },
+  "/imports": { eyebrow: "Entrada de dados", title: "Importar sem perder a origem", description: "Receba planilhas, revise o mapeamento e aprove somente o que fizer sentido para o domínio." },
   "/core": { eyebrow: "Núcleo comum", title: "Estrutura do grupo", description: "Unidades, atividades e operações que sustentam cada domínio." },
   "/data-control": { eyebrow: "Governança", title: "Controle dos dados", description: "Resolva o que precisa de confirmação antes de virar indicador." },
   "/catalog": { eyebrow: "Conhecimento", title: "Catálogo e KPIs", description: "Um significado único para cada campo e cada número de gestão." },
@@ -87,9 +91,9 @@ function Shell({ children, currentPath }: { children: React.ReactNode; currentPa
       </div>
       <nav className="main-nav">
         <span className="nav-label">Operação</span>
-        {navItems.slice(0, 4).map((item: any) => <Link key={item.path} href={item.path} className={`nav-item ${currentPath === item.path ? "active" : ""}`} onClick={() => setMobileOpen(false)}><item.icon size={17} /><span>{item.label}</span>{item.path === "/data-control" && summary.data && <span className="nav-count">{summary.data.toConfirm + summary.data.openDiscrepancies + summary.data.candidateLinks}</span>}</Link>)}
+        {navItems.slice(0, 5).map((item: any) => <Link key={item.path} href={item.path} className={`nav-item ${currentPath === item.path ? "active" : ""}`} onClick={() => setMobileOpen(false)}><item.icon size={17} /><span>{item.label}</span>{item.path === "/data-control" && summary.data && <span className="nav-count">{summary.data.toConfirm + summary.data.openDiscrepancies + summary.data.candidateLinks}</span>}</Link>)}
         <span className="nav-label nav-label-space">Conhecimento</span>
-        {navItems.slice(4).map((item: any) => <Link key={item.path} href={item.path} className={`nav-item ${currentPath === item.path ? "active" : ""}`} onClick={() => setMobileOpen(false)}><item.icon size={17} /><span>{item.label}</span></Link>)}
+        {navItems.slice(5).map((item: any) => <Link key={item.path} href={item.path} className={`nav-item ${currentPath === item.path ? "active" : ""}`} onClick={() => setMobileOpen(false)}><item.icon size={17} /><span>{item.label}</span></Link>)}
         <span className="nav-label nav-label-space">Planejamento</span>
         <Link href="/growth-calculator" className={`nav-item ${currentPath === "/growth-calculator" ? "active" : ""}`} onClick={() => setMobileOpen(false)}><Gauge size={17} /><span>Quanto custa crescer</span></Link>
       </nav>
@@ -252,6 +256,7 @@ export default function Home() {
   const basePath = location.startsWith("/livestock/") ? "/livestock" : location;
   const content = useMemo(() => {
     if (basePath === "/livestock") return <LivestockView />;
+    if (basePath === "/imports") return <ImportsView />;
     if (basePath === "/core") return <CoreView />;
     if (basePath === "/data-control") return <DataControlView />;
     if (basePath === "/catalog") return <CatalogView />;

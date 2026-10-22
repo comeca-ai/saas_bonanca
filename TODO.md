@@ -39,6 +39,15 @@
 - [x] Lançamentos econômicos registram custo, receita ou ajuste, competência, valor, centro de resultado e vínculos controlados.
 - [x] Fontes primárias, sistemas existentes, lançamentos de campo, planilhas e simulações são diferenciados por confiança/origem desde a entrada.
 
+## Importação e reconciliação de bases
+
+- [x] A tela de Importação recebe CSV, XLS, XLSX e JSON de até 5 MB e 5.000 linhas, com escolha do destino entre lotes, eventos/pesagens, movimentações de insumo e lançamentos econômicos.
+- [x] O lote de importação preserva arquivo original em base64, hash SHA-256, nome, tamanho, cabeçalhos, mapeamento, usuário, contadores e histórico de decisões; o mesmo hash não pode ser recebido duas vezes na organização.
+- [x] Cada linha mantém número de origem, conteúdo original, dados normalizados, status e erros; aliases de cabeçalhos, datas brasileiras e números com vírgula decimal são normalizados sem sobrescrever a leitura original.
+- [x] O fluxo exige receber, mapear, validar e aprovar; unidades, lotes, insumos e movimentos são resolvidos dentro da organização e duplicidades ficam separadas.
+- [x] Somente perfis administrativos aprovam linhas válidas; registros importados entram com origem consolidada e status a confirmar, e vínculos com lotes entram como candidatos.
+- [x] O smoke test cobre upload, detalhe, mapeamento, validação e cancelamento sem aprovar dados no domínio; testes unitários cobrem CSV, JSON e XLSX.
+
 ## Painel, operação e calculadora
 
 - [x] O painel mostra lotes ativos, cabeças sob gestão, consumo, custos apurados, registros pendentes, divergências abertas, vínculos candidatos, alertas de qualidade e documentos pendentes.

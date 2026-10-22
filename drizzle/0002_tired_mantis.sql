@@ -1,0 +1,1 @@
+ALTER TABLE `import_batches` ADD CONSTRAINT `import_batches_organization_hash_uq` UNIQUE(`organizationId`,`sourceHash`);
